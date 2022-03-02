@@ -6,10 +6,10 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 DLDLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "dldlm-small": "https://huggingface.co/vincenzo-scotti/DLDLM-small-pretrained/resolve/main/config.json",
-    "dldlm-small-emp": "https://huggingface.co/vincenzo-scotti/DLDLM-small-empathy-finetuning /resolve/main/config.json",
-    "dldlm-medium": "https://huggingface.co/vincenzo-scotti/DLDLM-medium-pretrained/resolve/main/config.json",
-    "dldlm-medium-emp": "https://huggingface.co/vincenzo-scotti/DLDLM-medium-empathy-finetuning /resolve/main/config.json",
+    "dldlm-small": "https://huggingface.co/vincenzo-scotti/dldlm-small/resolve/main/config.json",
+    "dldlm-small-emp": "https://huggingface.co/vincenzo-scotti/dldlm-small-emp/resolve/main/config.json",
+    "dldlm-medium": "https://huggingface.co/vincenzo-scotti/dldlm-medium/resolve/main/config.json",
+    "dldlm-medium-emp": "https://huggingface.co/vincenzo-scotti/dldlm-medium-emp/resolve/main/config.json",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 }
 
