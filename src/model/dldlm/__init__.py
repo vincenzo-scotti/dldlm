@@ -12,7 +12,7 @@ if is_torch_available():
         "DLDLM_PRETRAINED_CONFIG_ARCHIVE_LIST",
         "DLDLMIRHeadModel",
         "DLDLMAllHeadsModel",
-        "DLDLMForSequenceClassification",
+        "DLDLMPosteriorSequenceClassification",
         "DLDLMLMHeadModel",
         "DLDLMModel",
         "DLDLMPreTrainedModel",
