@@ -163,7 +163,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     ) -> DLDLMCostFunctionOutput:
         # Prepare additional parameters
         reduction: bool = kwargs.get('reduction', self.config.reduction)
-        assert reduction or batch_size is not None, "You need to specify the batch size when there is no reduction."
+        assert reduction or batch_size is not None, "You need to specify the mini_batch size when there is no reduction."
 
         # Compute losses
         if self.config.rl_weight < 1.:
@@ -568,7 +568,7 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
         return_dict=None,
         **kwargs,
     ):
-        # Get batch size
+        # Get mini_batch size
         if input_ids is not None:
             batch_size = input_ids.size(0)
         elif input_embeds is not None:
@@ -984,7 +984,7 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
         return_dict=None,
         **kwargs,
     ):
-        # Get batch size
+        # Get mini_batch size
         if input_ids is not None:
             batch_size = input_ids.size(0)
         elif input_embeds is not None:
@@ -1198,7 +1198,7 @@ class DLDLMPosteriorSequenceClassification(DLDLMPreTrainedModel):
         return_dict=None,
         **kwargs,
     ):
-        # Get batch size
+        # Get mini_batch size
         if input_ids is not None:
             batch_size = input_ids.size(0)
         elif input_embeds is not None:
@@ -1334,7 +1334,7 @@ class DLDLMIRHeadModel(DLDLMPreTrainedModel):
         return_dict=None,
         **kwargs,
     ):
-        # Get batch size
+        # Get mini_batch size
         if input_ids is not None:
             batch_size = input_ids.size(0)
         elif input_embeds is not None:
