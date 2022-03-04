@@ -1,3 +1,4 @@
+#!/bin/bash
 # NOTE this script must be run from the repository root
 # Print help if required
 help()
@@ -17,7 +18,7 @@ help()
 download=false
 standardise=false
 prepare=false
-while getopts :hpa: option;
+while getopts :hdsp: option;
 do
   case "${option}" in
     h) help

@@ -1,3 +1,4 @@
+#!/bin/bash
 # NOTE this script must be run from the repository root
 # Print help if required
 help()
@@ -15,7 +16,7 @@ help()
 }
 # Check options
 use_pip=false
-while getopts :hpa: option;
+while getopts :hp: option;
 do
   case "${option}" in
     h) help
@@ -34,6 +35,30 @@ else
   conda remove --name dldlm --all
 fi
 # Delete the added content to srcfile
-# TODO complete by removing the remaining part in .bashrc
+# Create temporary .bashrc to host updates
+tmpfile=$(mktemp /tmp/.bashrc)
+# Init flag
+reading=true
+# Loop over file lines
+while IFS= read -r line
+do
+  # If the current line is the start of the excluded sequence stop reading
+  if [$line == "# Begin of extension for DLDLM"];
+  then
+    reading=false
+  fi
+  # If reading copy the current line
+  if $reading
+  then
+    echo $line >> $tmpfile
+  fi
+  # If the current line is the end of the excluded sequence start reading back
+  if [$line == "# End of extension for DLDLM"];
+  then
+    reading=false
+  fi
+done < ~/.bashrc
+# Update .bashrc
+mv $tmpfile ~/
 # Reload srcfile
 source ~/.bashrc

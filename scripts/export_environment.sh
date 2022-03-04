@@ -1,3 +1,4 @@
+#!/bin/bash
 # NOTE this script must be run from the repository root
 # Print help if required
 help()
@@ -13,7 +14,7 @@ help()
 }
 # Check options
 use_pip=false
-while getopts :hpa: option;
+while getopts :hp: option;
 do
   case "${option}" in
     h) help

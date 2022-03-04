@@ -1,3 +1,4 @@
+#!/bin/bash
 # NOTE this script must be run from the repository root
 # Print help if required
 help()
