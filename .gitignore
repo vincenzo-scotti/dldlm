@@ -127,3 +127,19 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Data directories and files
+resources/data/*
+!resources/data/README.md
+
+# Model and tokenizer directories
+resources/models/*
+!resources/models/README.md
+
+# Experimet directories
+experiments/*
+!experiments/README.md
+
+# Service run directories
+services/*
+!services/README.md
