@@ -75,10 +75,10 @@ mkdir $DLDLM/resources/data/preprocessed
 if $standardise
 then
   # Run preprocessing scripts
-  python $DLDLDM/standardize_daily_dialog.py
-  python $DLDLDM/standardize_empathetic_dialogues.py
-  python $DLDLDM/standardize_persona_chat_dataset.py
-  python $DLDLDM/standardize_wizard_of_wikipedia.py
+  python $DLDLDM/bin/utils/standardization/standardize_daily_dialog.py
+  python $DLDLDM/bin/utils/standardization/standardize_empathetic_dialogues.py
+  python $DLDLDM/bin/utils/standardization/standardize_persona_chat_dataset.py
+  python $DLDLDM/bin/utils/standardization/standardize_wizard_of_wikipedia.py
 fi
 
 # Create directory to host the prepared corpus
@@ -86,5 +86,5 @@ mkdir $DLDLDM/resources/data/dialogue_corpus
 if $prepare
 then
   # Run preprocessing scripts
-  python $DLDLDM/prepare_dialogue_corpus.py
+  python $DLDLDM/bin/utils/preparation/prepare_dialogue_corpus.py
 fi
