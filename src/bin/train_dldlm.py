@@ -143,6 +143,7 @@ def init_environment(config_file_path: str):
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
 
+
 def clean_environment():
     # Declare global variables
     global current_experiment_dir_path
