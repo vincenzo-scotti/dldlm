@@ -302,7 +302,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         elif loss is None and objective is not None:
             cost = objective
         else:
-            cost = loss + objective
+            cost = ((1 - self.config.rl_weight) * loss) + (self.config.rl_weight * objective)
 
         output = DLDLMCostFunctionOutput(
             cost=cost,
