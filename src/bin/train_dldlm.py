@@ -534,7 +534,7 @@ def main(args: Namespace):
     # Perform preparation steps
     # Prepare the environment
     init_environment(args.config_file_path)
-    # create model and tokeniser
+    # Create model and tokeniser
     init_model()
     # Create data sets and data loaders
     init_data_loaders()

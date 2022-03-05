@@ -160,10 +160,10 @@ def init_model():
     global tokenizer_configs, model_configs, tokenizer, model
     # Create tokeniser instance
     tokenizer = DLDLMTokenizer.from_pretrained(tokenizer_configs['pretrained'])
-    logging.info("Tokeniser instantiated and extended")
+    logging.info("Tokeniser instantiated")
     # Create model instance
     model = DLDLMAllHeadsModel.from_pretrained(model_configs['pretrained'], **model_configs['additional_kwargs'])
-    logging.info("DLDLM model instantiated and extended")
+    logging.info("DLDLM model instantiated and update")
     # Move model to device
     model = model.to(device)
     logging.info(f"Model moved to device: {device}")
@@ -392,7 +392,7 @@ def main(args: Namespace):
     # Perform preparation steps
     # Prepare the environment
     init_environment(args.config_file_path)
-    # create model and tokeniser
+    # Create model and tokeniser
     init_model()
     # Create data sets and data loaders
     init_data_loader()
