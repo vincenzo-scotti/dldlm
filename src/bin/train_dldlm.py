@@ -286,20 +286,18 @@ def process_mini_batch(
             else:
                 tmp_loss.backward()
             tmp_loss = tmp_loss.cpu().item()
-        # Else collect predicted latents
+            # Update accumulators
+            loss += tmp_loss
+            for key in tmp_losses_dict:
+                losses_dict[key] = losses_dict.get(key, 0.0) + tmp_losses_dict[key]
+        # Else update accumulators collect predicted latents
         else:
-            tmp_loss = model_outputs.cost.cpu().tolist()
-            tmp_losses_dict = {
-                key: model_outputs.cost_function_output[key].cpu().tolist()
-                for key in model_outputs.cost_function_output
-                if '_loss' in key or '_div' in key
-            }
+            loss += model_outputs.cost.cpu().tolist()
+            for key in model_outputs.cost_function_output:
+                if '_loss' in key or '_div' in key:
+                    losses_dict[key] = losses_dict.get(key, []) + model_outputs.cost_function_output[key].cpu().tolist()
             latents += model_outputs.latent.cpu().tolist()
             policy_predictions += torch.argmax(model_outputs.policy_logits).cpu().tolist()
-        # Update accumulators
-        loss += tmp_loss
-        for key in tmp_losses_dict:
-            losses_dict[key] = losses_dict.get(key, []) + tmp_losses_dict[key]
     # Update weights model if training
     if model.training:
         # Clip gradient norm
