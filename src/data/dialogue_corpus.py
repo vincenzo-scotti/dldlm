@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 import pandas as pd
 
-from data import DataSetType
+from data import DataSetSplit
 from model import DLDLMTokenizer
 
 from typing import List, Tuple, Union, Optional
@@ -22,7 +22,7 @@ class DialogueCorpus(Dataset):
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
         # Data split identifier
-        self.data_set_split: DataSetType = DataSetType(data_set_split)
+        self.data_set_split: DataSetSplit = DataSetSplit(data_set_split)
         # Use distractor sample
         self.distractor: bool = distractor
         # Path to corpus data frame
@@ -119,8 +119,8 @@ class EpisodicDialogueCorpus(Dataset):
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
         # Data split identifier
-        self.data_set_split: List[DataSetType] = [
-            DataSetType(split) for split in ([data_set_split] if isinstance(data_set_split, str) else data_set_split)
+        self.data_set_split: List[DataSetSplit] = [
+            DataSetSplit(split) for split in ([data_set_split] if isinstance(data_set_split, str) else data_set_split)
         ]
         # Data sub-set identifier
         self.data_sub_set: Optional[List[str]] = [data_sub_set] if isinstance(data_sub_set, str) else data_sub_set

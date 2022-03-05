@@ -5,7 +5,7 @@ from .dialogue_corpus import DialogueCorpus, EpisodicDialogueCorpus
 IGNORE_INDEX = -100
 
 
-class DataSetType(Enum):
+class DataSetSplit(Enum):
     DEVELOPMENT: str = 'dev'
     TRAIN: str = 'train'
     VALIDATION: str = 'validation'
