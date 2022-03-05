@@ -395,7 +395,7 @@ def fit_model():
             mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
             # Log training info (mini-batch level)
             # Tensorboard
-            writer.add_scalar('Training Loss (mini-batch)', mini_batch_loss, global_step_counter + 1)
+            writer.add_scalar('Training Loss', mini_batch_loss, global_step_counter + 1)
             writer.add_scalars(
                 'Training Losses',
                 {LOSS_KEYS_MAPPING[key]: mini_batch_losses_dict[key] for key in LOSS_KEYS_MAPPING},
