@@ -10,6 +10,7 @@ from typing import Optional, Union, Tuple, List, Dict
 
 import random
 import math
+import numpy as np
 from sklearn.metrics import classification_report
 import torch
 from torch.utils.data import DataLoader
