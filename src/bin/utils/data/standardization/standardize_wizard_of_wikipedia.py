@@ -14,7 +14,6 @@ import pandas as pd
 CORPUS_ID = 'Wizard_of_Wikipedia'
 SOURCE_FILE_LIST = ['train.json', 'valid_random_split.json', 'test_random_split.json']
 SPLITS = ['train', 'validation', 'test']
-OUT_FILE_EXT = '.csv'
 DF_COLUMNS = [
     'split',
     'data_set',

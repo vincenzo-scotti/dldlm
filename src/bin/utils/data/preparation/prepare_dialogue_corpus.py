@@ -17,17 +17,11 @@ from spacytextblob.spacytextblob import SpacyTextBlob  # Do not delete
 
 import pandas as pd
 
-RANDOM_SEED = 2307
-
 SPACY_SENTIMENT_ANALYSIS = spacy.load('en_core_web_sm')
 SPACY_SENTIMENT_ANALYSIS.add_pipe('spacytextblob')
 SPACY_TOKENIZER = English().tokenizer
 
 TOKEN_PAD_VALUE = '<|endoftext|>'
-CONTEXT_TOKENS_MAX_LENGTH = 256
-RESPONSE_TOKENS_MAX_LENGTH = 128
-DO_LOWERCASING = False
-
 REWARD_PAD_VALUE = 0.0
 
 SPLIT_LIST = ['train', 'validation', 'test']
@@ -44,6 +38,12 @@ DF_COLUMNS = [
     'elicited_sentiment_reward_trace',
     'elicited_response_length_reward_trace',
 ]
+
+random_seed = 2307
+
+context_tokens_max_length = 256
+response_tokens_max_length = 128
+do_lowercasing = False
 
 
 def sentiment_reward(turn):
@@ -63,12 +63,12 @@ def prepare_dialogue(dialogue, tokenizer, split_id, corpus_id, conversation_id, 
     # Utility function
     def pick_random_turn(reference_turn):
         random_turn = reference_turn
-        while (reference_turn == random_turn) or (len(tokenizer(random_turn)) > RESPONSE_TOKENS_MAX_LENGTH):
+        while (reference_turn == random_turn) or (len(tokenizer(random_turn)) > response_tokens_max_length):
             idx = random.randrange(len(corpus))
             random_turn = corpus.loc[idx, 'text']
         return random_turn
 
-    dialogue_turns = [turn['text'].lower() if DO_LOWERCASING else turn['text'] for turn in dialogue]
+    dialogue_turns = [turn['text'].lower() if do_lowercasing else turn['text'] for turn in dialogue]
     # Contexts
     dialogue_contexts = []
     tokenized_dialogue_turns_lengths = [len(elem) for elem in tokenizer(dialogue_turns).input_ids]
@@ -76,7 +76,7 @@ def prepare_dialogue(dialogue, tokenizer, split_id, corpus_id, conversation_id, 
         context = dialogue_turns[:idx]
         tokenized_context_lengths = tokenized_dialogue_turns_lengths[:idx]
         total_tokenized_context_len = sum(tokenized_context_lengths)
-        while total_tokenized_context_len > CONTEXT_TOKENS_MAX_LENGTH:
+        while total_tokenized_context_len > context_tokens_max_length:
             total_tokenized_context_len -= tokenized_context_lengths.pop(0)
             context.pop(0)
         dialogue_contexts.append(context)
@@ -103,14 +103,14 @@ def prepare_dialogue(dialogue, tokenizer, split_id, corpus_id, conversation_id, 
         [split_id, corpus_id, conversation_id, idx, "\n".join(context), turn, distractor_list] + reward + reward_trace
         for idx, (turn, context, reward, reward_trace, distractor_list)
         in enumerate(zip(dialogue_turns, dialogue_contexts, rewards, reward_traces, distractors))
-        if RESPONSE_TOKENS_MAX_LENGTH >= tokenized_dialogue_turns_lengths[idx] > 0 and ((not (sum(tokenized_dialogue_turns_lengths[idx - len(context):idx]) == 0)) or idx == 0)
+        if response_tokens_max_length >= tokenized_dialogue_turns_lengths[idx] > 0 and ((not (sum(tokenized_dialogue_turns_lengths[idx - len(context):idx]) == 0)) or idx == 0)
     ]
 
     return prepared_dialogue
 
 
 def main(args):
-    global CONTEXT_TOKENS_MAX_LENGTH, RESPONSE_TOKENS_MAX_LENGTH, DO_LOWERCASING, RANDOM_SEED
+    global context_tokens_max_length, response_tokens_max_length, do_lowercasing, random_seed
 
     # Create destination directory
     if not os.path.exists(args.dest_dir_path):
@@ -118,13 +118,13 @@ def main(args):
 
     # Load tokenizer
     tokenizer = DLDLMTokenizer.from_pretrained(args.tokenizer_model)
-    CONTEXT_TOKENS_MAX_LENGTH = args.max_context_tokens
-    RESPONSE_TOKENS_MAX_LENGTH = args.max_response_tokens
-    DO_LOWERCASING = args.do_lowercasing
-    RANDOM_SEED = args.random_seed
+    context_tokens_max_length = args.max_context_tokens
+    response_tokens_max_length = args.max_response_tokens
+    do_lowercasing = args.do_lowercasing
+    random_seed = args.random_seed
 
     # Set random seed
-    random.seed(RANDOM_SEED)
+    random.seed(random_seed)
 
     # Build corpus
     data = []
@@ -153,11 +153,11 @@ def main(args):
 if __name__ == "__main__":
     args_parser = ArgumentParser()
     args_parser.add_argument('--data_dir_path', type=str, default='$DLDLM/resources/data/preprocessed/',
-                             help="Path to the directory containing the preprocessed corpora.")
+                             help="Path to the directory containing the preprocessed corpus_loaders.")
     args_parser.add_argument('--corpus_list', nargs='+', type=str,
                              default=['DailyDialog', 'EmpatheticDialogues', 'Persona-Chat', 'Wizard_of_Wikipedia'],
                              help="List of the directories containing the corpus to be used.")
-    args_parser.add_argument('--dest_dir_path', type=str, default='$DLDLM/resources/data/corpora/',
+    args_parser.add_argument('--dest_dir_path', type=str, default='$DLDLM/resources/data/corpus_loaders/',
                              help="Path to the directory where to store the generated corpus "
                                   "(It will be created if it does not exist.")
     args_parser.add_argument('--data_set_file', type=str, default='corpus.csv',
@@ -165,13 +165,13 @@ if __name__ == "__main__":
                                   "(file extension will be added automatically)")
     args_parser.add_argument('--tokenizer_model', type=str, default='gpt2',
                              help="Model of the HuggingFace \"Transformer\" package from which to take the tokenizer.")
-    args_parser.add_argument('--max_context_tokens', type=int, default=CONTEXT_TOKENS_MAX_LENGTH,
+    args_parser.add_argument('--max_context_tokens', type=int, default=context_tokens_max_length,
                              help="Maximum number of tokens in context.")
-    args_parser.add_argument('--max_response_tokens', type=int, default=RESPONSE_TOKENS_MAX_LENGTH,
+    args_parser.add_argument('--max_response_tokens', type=int, default=response_tokens_max_length,
                              help="Maximum number of tokens in context.")
-    args_parser.add_argument('--do_lowercasing', type=bool, default=DO_LOWERCASING,
+    args_parser.add_argument('--do_lowercasing', type=bool, default=do_lowercasing,
                              help="Whether to do the lower-casing of the text or not.")
-    args_parser.add_argument('--random_seed', type=int, default=RANDOM_SEED,
+    args_parser.add_argument('--random_seed', type=int, default=random_seed,
                              help="Random seed for reproducibility.")
     args_parser.add_argument('--parallel_backend', type=str, default='threading',
                              help="Parallel backend to use for preprocessing (see joblib package documentation).")
