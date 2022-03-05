@@ -499,6 +499,9 @@ def evaluate_model():
     start_time: datetime = datetime.now()
     # Log start of evaluation
     logging.info(f"Evaluation started - Current date and time {start_time}")
+    # Set model in evaluation mode
+    model.eval()
+    logging.info(f"Model set in evaluation mode")
     # Log start on validation set
     logging.info(f"Validation set evaluation started")
     # Compute summary report on validation set
@@ -521,7 +524,6 @@ def evaluate_model():
     print(test_report)
     # Log test results in TensorBoard
     writer.add_text('Test set evaluation results', test_report)
-    # Log test results in TensorBoard
     # Close evaluation
     # Get current date and time
     end_time: datetime = datetime.now()
