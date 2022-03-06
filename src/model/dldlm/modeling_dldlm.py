@@ -737,9 +737,9 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
                         )
                     ).unsqueeze(1)
                 else:
-                    latent_ids = torch.tensor(self.config.latent_token_ids)[latent].unsqueeze(-1)
+                    latent_ids = torch.tensor(self.config.latent_token_ids, device=device)[latent].unsqueeze(-1)
             elif latent_ids is not None:
-                _, latent = torch.where(torch.tensor(self.config.latent_token_ids) == latent_ids)
+                _, latent = torch.where(torch.tensor(self.config.latent_token_ids, device=device) == latent_ids)
             else:
                 latent = None
 
