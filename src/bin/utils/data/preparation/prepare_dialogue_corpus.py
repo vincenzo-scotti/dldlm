@@ -152,15 +152,15 @@ def main(args):
 
 if __name__ == "__main__":
     args_parser = ArgumentParser()
-    args_parser.add_argument('--data_dir_path', type=str, default='$DLDLM/resources/data/preprocessed/',
-                             help="Path to the directory containing the preprocessed corpus_loaders.")
+    args_parser.add_argument('--data_dir_path', type=str, default='./resources/data/preprocessed/',
+                             help="Path to the directory containing the preprocessed corpora.")
     args_parser.add_argument('--corpus_list', nargs='+', type=str,
                              default=['DailyDialog', 'EmpatheticDialogues', 'Persona-Chat', 'Wizard_of_Wikipedia'],
                              help="List of the directories containing the corpus to be used.")
-    args_parser.add_argument('--dest_dir_path', type=str, default='$DLDLM/resources/data/corpus_loaders/',
+    args_parser.add_argument('--dest_dir_path', type=str, default='./resources/data/dialogue_corpus/',
                              help="Path to the directory where to store the generated corpus "
-                                  "(It will be created if it does not exist.")
-    args_parser.add_argument('--data_set_file', type=str, default='corpus.csv',
+                                  "(it will be created if it does not exist.")
+    args_parser.add_argument('--data_set_file', type=str, default='corpus',
                              help="Name of the file containing the corpus to be created "
                                   "(file extension will be added automatically)")
     args_parser.add_argument('--tokenizer_model', type=str, default='gpt2',
