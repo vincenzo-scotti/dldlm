@@ -7,7 +7,7 @@ mixed_precision: true
 
 dldlm:
   model:
-    pretrained: &pretrained $DLDLM/resources/models/dldlm-medium
+    pretrained: &pretrained $DLDLM/resources/models/dldlm-medium/
   tokeniser:
     pretrained: *pretrained
 

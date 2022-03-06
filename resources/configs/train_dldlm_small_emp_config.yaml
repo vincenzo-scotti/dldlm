@@ -7,7 +7,7 @@ mixed_precision: true
 
 dldlm:
   model:
-    pretrained: &pretrained $DLDLM/resources/models/dldlm-small
+    pretrained: &pretrained $DLDLM/resources/models/dldlm-small/
     additional_kwargs:
       rl_weight: 0.5
       detach_posterior: true
