@@ -105,9 +105,9 @@ def main(args):
 if __name__ == "__main__":
     # Input arguments
     args_parser = ArgumentParser()
-    args_parser.add_argument('--source_dir_path', type=str, default='$DLDLM/resources/data/raw/personachat/',
+    args_parser.add_argument('--source_dir_path', type=str, default='./resources/data/raw/personachat/',
                              help="Path to the directory containing the raw corpus.")
-    args_parser.add_argument('--dest_dir_path', type=str, default='$DLDLM/resources/data/preprocessed/Persona-Chat/',
+    args_parser.add_argument('--dest_dir_path', type=str, default='./resources/data/preprocessed/Persona-Chat/',
                              help="Path to the directory where to store the standardised corpus.")
     args_parser.add_argument('--parallel_backend', type=str, default='threading',
                              help="Parallel backend to use for preprocessing (see joblib package documentation).")

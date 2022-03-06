@@ -106,10 +106,10 @@ def main(args):
 if __name__ == "__main__":
     # Input arguments
     args_parser = ArgumentParser()
-    args_parser.add_argument('--source_dir_path', type=str, default='$DLDLM/resources/data/raw/empatheticdialogues/',
+    args_parser.add_argument('--source_dir_path', type=str, default='./resources/data/raw/empatheticdialogues/',
                              help="Path to the directory containing the raw corpus.")
     args_parser.add_argument('--dest_dir_path', type=str,
-                             default='$DLDLM/resources/data/preprocessed/EmpatheticDialogues/',
+                             default='./resources/data/preprocessed/EmpatheticDialogues/',
                              help="Path to the directory where to store the standardised corpus.")
     args_parser.add_argument('--parallel_backend', type=str, default='threading',
                              help="Parallel backend to use for preprocessing (see joblib package documentation).")
