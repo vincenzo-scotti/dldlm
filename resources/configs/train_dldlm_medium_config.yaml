@@ -1,6 +1,6 @@
 experiment_series: DLDLM
 experiment_id: dldlm_medium
-experiments_directory_path: $DLDLM/experiments/
+experiments_directory_path: ./experiments/
 
 random_seed: 2307
 mixed_precision: true
@@ -38,7 +38,7 @@ evaluation:
   validation_period: 2048
 
 data:
-  csv_file_path: $DLDLM/resources/data/dialogue_corpus/corpus.csv
+  csv_file_path: ./resources/data/dialogue_corpus/corpus.csv
   splits:
     train:
       mini_batch_size: 64
