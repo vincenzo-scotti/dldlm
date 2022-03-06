@@ -54,7 +54,7 @@ python -m spacy download en_core_web_sm
 pip install spacytextblob
 ```
 
-For other options refer to the `scripts/` directory.
+For other options refer to the script `scripts/install_environment.sh`.
 
 ## Chatting
 
