@@ -150,7 +150,7 @@ def evaluate_model():
     logging.info(f"Evaluation started - Current date and time {start_time}")
     # Set model in evaluation mode
     model.eval()
-    logging.info(f"Model set in evaluation mode")
+    logging.info("Model set in evaluation mode")
     # Iterate over data frame rows
     for idx, (_, row) in enumerate(corpus.iterrows()):
         # Prepare input
