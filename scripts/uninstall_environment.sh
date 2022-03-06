@@ -40,10 +40,10 @@ tmpfile=$(mktemp /tmp/.bashrc)
 # Init flag
 reading=true
 # Loop over file lines
-while IFS= read -r line
+while read line;
 do
   # If the current line is the start of the excluded sequence stop reading
-  if [$line == "# Begin of extension for DLDLM"];
+  if [ "$line" = "# Begin of extension for DLDLM" ];
   then
     reading=false
   fi
@@ -53,9 +53,9 @@ do
     echo $line >> $tmpfile
   fi
   # If the current line is the end of the excluded sequence start reading back
-  if [$line == "# End of extension for DLDLM"];
+  if [ "$line" = "# End of extension for DLDLM" ];
   then
-    reading=false
+    reading=true
   fi
 done < ~/.bashrc
 # Update .bashrc
