@@ -79,7 +79,7 @@ def init_environment(config_file_path: str):
     # Init logging
     logging.basicConfig(filename=log_file_path, level=configs['log_level'])
     # Start Logging info
-    logging.info(f"{configs['experiment_series']} training script started")
+    logging.info(f"{configs['experiment_series']} evaluation script started")
     logging.info(f"Current experiment directories created at '{current_experiment_dir_path}'")
     if log_file_path is not None:
         logging.info(f"Current experiment log created at '{log_file_path}'")
