@@ -1,0 +1,21 @@
+experiment_series: DLDLM_static_evaluation
+experiment_id: dldlm_small_emp
+experiments_directory_path: $DLDLM/experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+dldlm:
+  model:
+    pretrained: &pretrained $DLDLM/resources/models/dldlm-small-emp
+  tokeniser:
+    pretrained: *pretrained
+
+data:
+  csv_file_path: $DLDLM/resources/data/dialogue_corpus/corpus.csv
+  splits:
+    - validation
+    - test
+
+log_level: DEBUG
+log_file: true

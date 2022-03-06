@@ -1,5 +1,5 @@
 experiment_series: DLDLM_static_evaluation
-experiment_id: dldlm_
+experiment_id: dldlm_medium
 experiments_directory_path: $DLDLM/experiments/
 
 random_seed: 2307
@@ -7,7 +7,7 @@ mixed_precision: true
 
 dldlm:
   model:
-    pretrained: &pretrained $DLDLM/resources/models/dldlm_
+    pretrained: &pretrained $DLDLM/resources/models/dldlm-medium
   tokeniser:
     pretrained: *pretrained
 
