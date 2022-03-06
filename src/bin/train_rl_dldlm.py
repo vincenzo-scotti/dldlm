@@ -84,7 +84,9 @@ def init_environment(config_file_path: str):
     experiment_series_dir_path: str = os.path.join(experiments_dir_path, configs['experiment_series'])
     if not os.path.exists(experiment_series_dir_path):
         os.mkdir(experiment_series_dir_path)
-    current_experiment_dir_path: str = os.path.join(experiment_series_dir_path, configs['experiment_id'])
+    current_experiment_dir_path: str = os.path.join(
+        experiment_series_dir_path, f"{configs['experiment_id']}_{date_time_experiment}"
+    )
     if not os.path.exists(current_experiment_dir_path):
         os.mkdir(current_experiment_dir_path)
     model_dir_path: str = os.path.join(current_experiment_dir_path, 'model')
@@ -128,7 +130,7 @@ def init_environment(config_file_path: str):
     writer.add_text('Configs', configs_dump_str)
     logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
     # Set device
-    device = torch.device(configs.get('device', 'gpu' if torch.cuda.is_available() else 'cpu'))
+    device = torch.device(configs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
     logging.info(f"Device set to '{device}'")
     # Set mixed precision
     mixed_precision = configs.get('mixed_precision', mixed_precision)
