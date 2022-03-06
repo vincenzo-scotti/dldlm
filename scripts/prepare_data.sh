@@ -30,14 +30,14 @@ do
 done
 
 # Create directory to host the corpora
-mkdir $DLDLM/resources/data/
+mkdir -p $DLDLM/resources/data/
 
 # Create directory to host the raw corpora
-mkdir $DLDLM/resources/data/raw/
+mkdir -p $DLDLM/resources/data/raw/
 if $download
 then
   # Create directory to host the corpus
-  mkdir $DLDLM/resources/data/raw/dailydialog/
+  mkdir -p $DLDLM/resources/data/raw/dailydialog/
   # Download the corpus
   wget https://parl.ai/downloads/dailydialog/dailydialog.tar.gz -P $DLDLM/resources/data/raw/ --no-check-certificate
   # Unpack downloaded archive
@@ -45,15 +45,15 @@ then
   # Delete archive
   rm $DLDLM/resources/data/raw/dailydialog.tar.gz
   # Create directory to host the corpus
-  mkdir $DLDLMresources/data/raw/empatheticdialogues/
+  mkdir -p $DLDLM/resources/data/raw/empatheticdialogues/
   # Download the corpus
-  wget https://parl.ai/downloads/empatheticdialogues/empatheticdialogues.tar.gz -P $DLDLMresources/data/raw/ --no-check-certificate
+  wget https://parl.ai/downloads/empatheticdialogues/empatheticdialogues.tar.gz -P $DLDLM/resources/data/raw/ --no-check-certificate
   # Unpack downloaded archive
-  tar -xzf $DLDLMresources/data/raw/empatheticdialogues.tar.gz -C $DLDLMresources/data/raw/empatheticdialogues/ --strip=1
+  tar -xzf $DLDLM/resources/data/raw/empatheticdialogues.tar.gz -C $DLDLM/resources/data/raw/empatheticdialogues/ --strip=1
   # Delete archive
-  rm $DLDLMresources/data/raw/empatheticdialogues.tar.gz
+  rm $DLDLM/resources/data/raw/empatheticdialogues.tar.gz
   # Create directory to host the corpus
-  mkdir $DLDLM/resources/data/raw/personachat/
+  mkdir -p $DLDLM/resources/data/raw/personachat/
   # Download the corpus
   wget https://parl.ai/downloads/personachat/personachat.tgz -P $DLDLM/resources/data/raw/ --no-check-certificate
   # Unpack downloaded archive
@@ -61,7 +61,7 @@ then
   # Delete archive
   rm $DLDLM/resources/data/raw/personachat.tgz
   # Create directory to host the corpus
-  mkdir $DLDLM/resources/data/raw/wizard_of_wikipedia
+  mkdir -p $DLDLM/resources/data/raw/wizard_of_wikipedia
   # Download the corpus
   wget https://parl.ai/downloads/wizard_of_wikipedia/wizard_of_wikipedia.tgz -P $DLDLM/resources/data/raw/ --no-check-certificate
   # Unpack downloaded archive
@@ -71,20 +71,20 @@ then
 fi
 
 # Create directory to host the standardised corpora
-mkdir $DLDLM/resources/data/preprocessed
+mkdir -p $DLDLM/resources/data/preprocessed
 if $standardise
 then
   # Run preprocessing scripts
-  python $DLDLDM/bin/utils/standardization/standardize_daily_dialog.py
-  python $DLDLDM/bin/utils/standardization/standardize_empathetic_dialogues.py
-  python $DLDLDM/bin/utils/standardization/standardize_persona_chat_dataset.py
-  python $DLDLDM/bin/utils/standardization/standardize_wizard_of_wikipedia.py
+  python $DLDLM/src/bin/utils/data/standardization/standardize_daily_dialog.py --source_dir_path $DLDLM/resources/data/raw/dailydialog/ --dest_dir_path $DLDLM/resources/data/preprocessed/DailyDialog/
+  python $DLDLM/src/bin/utils/data/standardization/standardize_empathetic_dialogues.py --source_dir_path $DLDLM/resources/data/raw/empatheticdialogues/ --dest_dir_path $DLDLM/resources/data/preprocessed/EmpatheticDialogues/
+  python $DLDLM/src/bin/utils/data/standardization/standardize_persona_chat_dataset.py --source_dir_path $DLDLM/resources/data/raw/personachat/ --dest_dir_path $DLDLM/resources/data/preprocessed/Persona-Chat/
+  python $DLDLM/src/bin/utils/data/standardization/standardize_wizard_of_wikipedia.py --source_dir_path $DLDLM/resources/data/raw/wizard_of_wikipedia/ --dest_dir_path $DLDLM/resources/data/preprocessed/Wizard_of_Wikipedia/
 fi
 
 # Create directory to host the prepared corpus
-mkdir $DLDLDM/resources/data/dialogue_corpus
+mkdir -p $DLDLM/resources/data/dialogue_corpus
 if $prepare
 then
   # Run preprocessing scripts
-  python $DLDLDM/bin/utils/preparation/prepare_dialogue_corpus.py
+  python $DLDLM/src/bin/utils/data/preparation/prepare_dialogue_corpus.py --data_dir_path $DLDLM/resources/data/preprocessed/ --dest_dir_path $DLDLM/resources/data/dialogue_corpus/
 fi

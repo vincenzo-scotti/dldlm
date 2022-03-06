@@ -15,6 +15,6 @@ help()
 }
 
 # Install environment
-bash ./scrpts/install_environment.sh -a
+bash ./scripts/install_environment.sh -a
 # Download data
-bash ./scrpts/prepare_data.sh -d
+bash ./scripts/prepare_data.sh -d

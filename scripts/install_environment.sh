@@ -33,12 +33,16 @@ then # Crete virtualenv environment (assumes already installed GPU driver if nee
   source ./dldlm/bin/activate
   pip install -r ./requirements.txt
 else  # Create anaconda environment
-  conda env create -f ./environment.yml
+  conda env create -f ./environment.yaml
 fi
+
+echo >> ~/.bashrc
 # Mark start of extensions to ~/.bashrc
 echo "# Begin of extension for DLDLM" >> ~/.bashrc
 # Create variable for project directory
 echo "DLDLM=$PWD" >> ~/.bashrc
+# Export variable for project directory
+echo "export DLDLM" >> ~/.bashrc
 # Extend python path
 echo "export PYTHONPATH=\$PYTHONPATH:\$DLDLM/src" >> ~/.bashrc
 # Activate environment (if required)
@@ -55,5 +59,7 @@ fi
 echo "cd \$DLDLM" >> ~/.bashrc
 # Mark end of extensions to ~/.bashrc
 echo "# End of extension for DLDLM" >> ~/.bashrc
+
+echo >> ~/.bashrc
 # Reload srcfile
 source ~/.bashrc
