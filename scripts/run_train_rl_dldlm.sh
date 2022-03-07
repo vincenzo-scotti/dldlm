@@ -1,4 +1,6 @@
 #!/bin/bash
+# Move to repository directory to ensure paths work correctly
+cd $DLDLM
 # Train small model
 python $DLDLM/src/bin/train_dldlm.py --config_file_path $DLDLM/resources/configs/train_dldlm_small_config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out
 # Train medium model

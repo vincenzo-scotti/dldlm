@@ -1,4 +1,6 @@
 #!/bin/bash
+# Move to repository directory to ensure paths work correctly
+cd $DLDLM
 # Evaluate small model
 python $DLDLM/src/bin/evaluate_static.py --config_file_path $DLDLM/resources/configs/static_evaluation_dldlm_small.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out
 # Evaluate medium model
