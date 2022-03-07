@@ -1,6 +1,6 @@
 import os
 import sys
-from shutil import copy2
+from shutil import copy2, move
 import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
@@ -107,6 +107,18 @@ def init_environment(config_file_path: str):
     logging.info("Initialisation completed")
 
 
+def clean_environment():
+    # Declare global variables
+    global current_experiment_dir_path
+    # TODO search for closest in time
+    # List files
+    file_list = sorted(f for f in os.listdir() if f.startswith("experiment_"))
+    if len(file_list) > 0:
+        output_file = file_list.pop(-1)
+        move(output_file, os.path.join(current_experiment_dir_path, output_file))
+        logging.info("Cleaning completed")
+
+
 def load_model():
     # Declare global variables
     global tokenizer_configs, model_configs, tokenizer, model
@@ -151,7 +163,7 @@ def evaluate_model():
     # Log start of evaluation
     logging.info(f"Evaluation started - Current date and time {start_time}")
     # Set model in evaluation mode
-    model.eval()
+    model = model.eval()
     logging.info("Model set in evaluation mode")
     # Iterate over data frame rows
     for idx, (_, row) in enumerate(corpus.iterrows()):
@@ -197,7 +209,7 @@ def evaluate_model():
             past_key_values=tuple(
                 (k[:, :, :context_len], v[:, :, :context_len]) for k, v in model_outputs.past_key_values
             ),
-            latent_ids=torch.tensor([[model.config.latent_token_ids[z_posterior]]], dtype=torch.long, device=device),
+            latent_ids=torch.tensor([[model.config.latent_token_ids[z_policy]]], dtype=torch.long, device=device),
             do_context=False,
             do_policy=False,
             do_response_encoding=False,
@@ -216,9 +228,8 @@ def evaluate_model():
             z_posterior, z_policy,
             policy_z_behavior_p, policy_z_empathy_p,
             behaviour_expected_elicited_sent_rew, behaviour_expected_elicited_resp_len_rew,
-            policy_expected_elicited_sent_rew, behaviour_expected_elicited_resp_len_rew
+            policy_expected_elicited_sent_rew, policy_expected_elicited_resp_len_rew
         ])
-
         # Log step completion
         logging.debug(f"Evaluation step {idx + 1} of {n_elems} completed")
     # Close evaluation
@@ -244,6 +255,8 @@ def main(args: Namespace):
     load_data()
     # Carry on evaluation process
     evaluate_model()
+
+    clean_environment()
 
     return 0
 

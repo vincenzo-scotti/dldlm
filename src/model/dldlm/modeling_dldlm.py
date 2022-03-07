@@ -173,7 +173,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             if lm_logits is not None and labels is not None:
                 shift_labels: torch.Tensor = labels[..., 1:].contiguous()
                 shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
-                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1)
+                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1) + 1.
                 lm_loss: Optional[torch.Tensor] = F.cross_entropy(
                     shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
                 ).view(shift_labels.size()).sum(1)
@@ -264,14 +264,14 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             loss = lm_loss = latent_kl_div = latent_kl_div_threshold = latent_loss = cls_loss = bow_loss = rew_loss = None
 
         # Compute objective
-        if self.config.rl_weight > 0.0:
+        if self.config.rl_weight > 0.0 and g_return is not None:
             # Cumulative objective
             objective = torch.zeros(1 if reduction else batch_size, device=self.device)
             # Language modeling objective
             if lm_logits is not None and labels is not None:
                 shift_labels: torch.Tensor = labels[..., 1:].contiguous()
-                shift_logits: torch.Tensor = lm_logits[..., :-1].contiguous()
-                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1)
+                shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
+                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1) + 1
                 lm_obj: Optional[torch.Tensor] = F.cross_entropy(
                     shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
                 ).view(shift_labels.size()).sum(1)
@@ -624,7 +624,7 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             policy_hidden_states = policy_hidden_outputs.hidden_states
             policy_attentions = policy_hidden_outputs.attentions
             # Compute P
-            policy_logits = self.posterior_head(policy_last_hidden_state)
+            policy_logits = self.policy_head(policy_last_hidden_state)
         else:
             policy_last_hidden_state = policy_past_key_values = policy_hidden_states = policy_attentions = None
             policy_logits = None
