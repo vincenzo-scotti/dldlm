@@ -30,5 +30,5 @@ if $use_pip
     pip freeze > $DLDLM/requirements.txt
   else
     conda activate dldlm
-    conda env export | grep -v "^prefix: " > $DLDLM/environment.yml
+    conda env export | grep -v "^prefix: " > $DLDLM/environment.yaml
 fi
