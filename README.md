@@ -47,9 +47,9 @@ conda create -n dldlm python=3.8 cudatoolkit=11.3
 # Activate anaconda environment
 conda activate dldlm
 # Install packages
-pip install torch==1.10.1
-pip install transformers==4.12.5
-pip install tensorboard==2.8.0 pandas scikit-learn matplotlib seaborn spacy
+conda install pytorch=1.10.1 -c pytorch
+conda install transformers=4.12.5 -c conda-forge
+conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy -c conda-forge
 python -m spacy download en_core_web_sm
 pip install spacytextblob
 ```
