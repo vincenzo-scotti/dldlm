@@ -1,4 +1,4 @@
-experiment_series: dldlm
+experiment_series: DLDLM
 experiment_id: dldlm_small
 experiments_directory_path: ./experiments/
 
