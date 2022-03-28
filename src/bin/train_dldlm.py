@@ -85,7 +85,7 @@ def init_environment(config_file_path: str):
     experiment_series_dir_path: str = os.path.join(experiments_dir_path, configs['experiment_series'])
     if not os.path.exists(experiment_series_dir_path):
         os.mkdir(experiment_series_dir_path)
-    current_experiment_dir_path: str = os.path.join(
+    current_experiment_dir_path = os.path.join(
         experiment_series_dir_path, f"{configs['experiment_id']}_{date_time_experiment}"
     )
     if not os.path.exists(current_experiment_dir_path):
@@ -93,13 +93,13 @@ def init_environment(config_file_path: str):
     model_dir_path: str = os.path.join(current_experiment_dir_path, 'model')
     if not os.path.exists(model_dir_path):
         os.mkdir(model_dir_path)
-    model_checkpoint_path: str = os.path.join(model_dir_path, 'latest_checkpoint')
+    model_checkpoint_path = os.path.join(model_dir_path, 'latest_checkpoint')
     if not os.path.exists(model_checkpoint_path):
         os.mkdir(model_checkpoint_path)
-    best_model_checkpoint_path: str = os.path.join(model_dir_path, 'best_checkpoint')
+    best_model_checkpoint_path = os.path.join(model_dir_path, 'best_checkpoint')
     if not os.path.exists(best_model_checkpoint_path):
         os.mkdir(best_model_checkpoint_path)
-    tb_dir_path: str = os.path.join(current_experiment_dir_path, 'tensorboard')
+    tb_dir_path = os.path.join(current_experiment_dir_path, 'tensorboard')
     if not os.path.exists(tb_dir_path):
         os.mkdir(tb_dir_path)
     # Create file paths
@@ -218,7 +218,7 @@ def init_optimisation_tools():
     if mixed_precision:
         scaler = GradScaler()
     # Create learning rate scheduler instance
-    lr_scheduler = LinearLR(**scheduler_configs)
+    lr_scheduler = LinearLR(optimizer, **scheduler_configs)
     logging.info("Learning rate scheduler instantiated")
 
 
@@ -264,7 +264,7 @@ def process_mini_batch(
             context_ids=context_ids,
             context_attentions=context_attentions,
             labels=labels,
-            target_rewards=rewards,
+            target_reward=rewards,
             distractor_ids=distractor_ids,
             distractor_attentions=distractor_attentions,
             reduction=model.training

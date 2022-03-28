@@ -44,6 +44,7 @@ mixed_precision: bool = True
 writer: SummaryWriter
 # Model
 model_configs: Dict
+reinforce_configs: Dict
 model: DLDLMAllHeadsModel
 tokenizer_configs: Dict
 tokenizer: DLDLMTokenizer
@@ -57,7 +58,6 @@ optimizer: Optimizer
 scaler: Optional[GradScaler] = None
 scheduler_configs: Dict
 lr_scheduler: LinearLR
-evaluation_configs: Dict
 # Experiment dir path
 current_experiment_dir_path: str
 # Checkpoint paths
@@ -68,8 +68,8 @@ best_model_checkpoint_path: str
 def init_environment(config_file_path: str):
     # Declare global variables
     global random_seed, device, mixed_precision, writer, model_configs, tokenizer_configs, optimizer_configs, \
-        scheduler_configs, evaluation_configs, corpus_configs, \
-        current_experiment_dir_path, model_checkpoint_path, best_model_checkpoint_path
+        scheduler_configs, corpus_configs, current_experiment_dir_path, reinforce_configs, \
+        model_checkpoint_path, best_model_checkpoint_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # Read YAML file
@@ -84,7 +84,7 @@ def init_environment(config_file_path: str):
     experiment_series_dir_path: str = os.path.join(experiments_dir_path, configs['experiment_series'])
     if not os.path.exists(experiment_series_dir_path):
         os.mkdir(experiment_series_dir_path)
-    current_experiment_dir_path: str = os.path.join(
+    current_experiment_dir_path = os.path.join(
         experiment_series_dir_path, f"{configs['experiment_id']}_{date_time_experiment}"
     )
     if not os.path.exists(current_experiment_dir_path):
@@ -92,13 +92,13 @@ def init_environment(config_file_path: str):
     model_dir_path: str = os.path.join(current_experiment_dir_path, 'model')
     if not os.path.exists(model_dir_path):
         os.mkdir(model_dir_path)
-    model_checkpoint_path: str = os.path.join(model_dir_path, 'latest_checkpoint')
+    model_checkpoint_path = os.path.join(model_dir_path, 'latest_checkpoint')
     if not os.path.exists(model_checkpoint_path):
         os.mkdir(model_checkpoint_path)
-    best_model_checkpoint_path: str = os.path.join(model_dir_path, 'best_checkpoint')
+    best_model_checkpoint_path = os.path.join(model_dir_path, 'best_checkpoint')
     if not os.path.exists(best_model_checkpoint_path):
         os.mkdir(best_model_checkpoint_path)
-    tb_dir_path: str = os.path.join(current_experiment_dir_path, 'tensorboard')
+    tb_dir_path = os.path.join(current_experiment_dir_path, 'tensorboard')
     if not os.path.exists(tb_dir_path):
         os.mkdir(tb_dir_path)
     # Create file paths
@@ -137,10 +137,10 @@ def init_environment(config_file_path: str):
     logging.info(f"Mixed precision set to '{mixed_precision}'")
     # Load remaining configs
     model_configs = configs['dldlm']['model']
+    reinforce_configs = configs['dldlm']['reinforce']
     tokenizer_configs = configs['dldlm']['tokeniser']
     optimizer_configs = configs['optimizer']
     scheduler_configs = configs['lr_scheduler']
-    evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
 
@@ -173,14 +173,14 @@ def init_model():
 
 def init_data_loader():
     # Declare global variables
-    global corpus_configs, model_configs, tokenizer, corpus, corpus_loader
+    global corpus_configs, reinforce_configs, tokenizer, corpus, corpus_loader
     # Create data set instance
     data_set: EpisodicDialogueCorpus = EpisodicDialogueCorpus(
         corpus_configs['csv_file_path'],
         tokenizer,
         data_set_split=corpus_configs['splits'],
-        discount_factor=model_configs['model_configs']['gamma'],
-        reward_weights=model_configs['model_configs']['reward_weights']
+        discount_factor=reinforce_configs['gamma'],
+        reward_weights=reinforce_configs['reward_weights']
     )
     logging.info(f"Data set instantiated")
     # Create data loader instance
@@ -211,7 +211,7 @@ def init_optimisation_tools():
     if mixed_precision:
         scaler = GradScaler()
     # Create learning rate scheduler instance
-    lr_scheduler = LinearLR(**scheduler_configs)
+    lr_scheduler = LinearLR(optimizer, **scheduler_configs)
     logging.info("Learning rate scheduler instantiated")
 
 
@@ -247,6 +247,7 @@ def process_mini_batch(
     distractor_attentions = distractor_attentions.to(device)
     labels = labels.to(device)
     rewards = rewards.to(device)
+    normalised_discounted_rewards = normalised_discounted_rewards.to(device)
     # Loop over sub_batches to fit in memory
     for s_idx in range(0, mini_batch_size, in_mem):
         # Get final index of current slice
@@ -258,7 +259,7 @@ def process_mini_batch(
             context_ids=context_ids,
             context_attentions=context_attentions,
             labels=labels,
-            target_rewards=rewards,
+            target_reward=rewards,
             distractor_ids=distractor_ids,
             distractor_attentions=distractor_attentions,
             g_return=normalised_discounted_rewards

@@ -6,6 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from transformers.modeling_outputs import (
+    ModelOutput,
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     SequenceClassifierOutputWithPast
@@ -35,7 +36,7 @@ DLDLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
 ]
 
 @dataclass
-class DLDLMCostFunctionOutput:
+class DLDLMCostFunctionOutput(ModelOutput):
     cost: torch.Tensor  # Shape (1,) or (batch_size,)
     loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     objective: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -821,6 +822,8 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
 
         output: DLDLMAllHeadsModelOutput = DLDLMAllHeadsModelOutput(
             cost=cost_function_output.cost,
+            loss=cost_function_output.loss,
+            objective=cost_function_output.objective,
             cost_function_output=cost_function_output,
             logits=lm_logits,
             posterior_logits=posterior_logits,

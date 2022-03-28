@@ -1,1 +1,1 @@
-from lr_scheduling import LinearLR
+from .lr_scheduling import LinearLR

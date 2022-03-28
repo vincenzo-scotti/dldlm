@@ -1,13 +1,20 @@
 import random
+from enum import Enum
 
 import torch
 from torch.utils.data import Dataset
 import pandas as pd
 
-from data import DataSetSplit
 from model import DLDLMTokenizer
 
 from typing import List, Tuple, Union, Optional
+
+
+class DataSetSplit(Enum):
+    DEVELOPMENT: str = 'dev'
+    TRAIN: str = 'train'
+    VALIDATION: str = 'validation'
+    TEST: str = 'test'
 
 
 class DialogueCorpus(Dataset):
@@ -151,6 +158,7 @@ class EpisodicDialogueCorpus(Dataset):
             column_id for column_id in self.data_group_df.columns if column_id.endswith('_reward_trace')
         ]
         self.data_group_df = self.data_group_df.groupby('conversation_id', sort=False)
+        self.key_list: List[int] = list(self.data_group_df.groups)
 
     def __len__(self) -> int:
         # Number of sequences within the data set
@@ -161,7 +169,7 @@ class EpisodicDialogueCorpus(Dataset):
         Tuple[Optional[List[str]], str, List[float], str, List[Tuple[float]]]
     ]]:
         # Load episode at specified index
-        conversation_df: pd.DataFrame = self.data_group_df.get_group(index)
+        conversation_df: pd.DataFrame = self.data_group_df.get_group(self.key_list[index])
         # Prepare episode
         if self.distractor:
             episode: List[Tuple[Optional[List[str]], str, List[float], str, List[Tuple[float]]]] = [
