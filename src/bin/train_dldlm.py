@@ -259,8 +259,8 @@ def process_mini_batch(
         e_idx = min(mini_batch_size, s_idx + in_mem)
         # Process current elements
         model_outputs = model(
-            input_ids=response_ids[s_idx:e_idx],
-            input_attentions=response_attentions[s_idx:e_idx],
+            input_ids=response_ids[s_idx:e_idx] if response_ids is not None else None,
+            input_attentions=response_attentions[s_idx:e_idx] if response_attentions is not None else None,
             context_ids=context_ids[s_idx:e_idx],
             context_attentions=context_attentions[s_idx:e_idx],
             labels=labels[s_idx:e_idx],
