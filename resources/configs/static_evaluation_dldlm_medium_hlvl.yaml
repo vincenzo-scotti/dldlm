@@ -1,0 +1,18 @@
+experiment_series: DLDLM_static_evaluation
+experiment_id: dldlm_medium_hlvl
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+dldlm:
+  model:
+    pretrained: &pretrained ./resources/models/dldlm-medium/
+  tokeniser:
+    pretrained: *pretrained
+
+data:
+  csv_file_path: ./resources/data/dialogue_corpus/corpus.csv
+
+log_level: DEBUG
+log_file: true
