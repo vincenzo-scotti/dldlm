@@ -160,7 +160,7 @@ def clean_environment():
 
 def init_model():
     # Declare global variables
-    global tokenizer_configs, model_configs, tokenizer, model
+    global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path, best_model_checkpoint_path
     # Create tokeniser instance
     tokenizer = DLDLMTokenizer.from_pretrained(
         tokenizer_configs['pretrained']
@@ -168,6 +168,10 @@ def init_model():
         tokenizer_configs['n_styles']
     )
     logging.info("Tokeniser instantiated and extended")
+    # Serialise tokeniser
+    tokenizer.save_pretrained(model_checkpoint_path)
+    tokenizer.save_pretrained(best_model_checkpoint_path)
+    logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
     model = DLDLMAllHeadsModel.from_pretrained(
         model_configs['pretrained'], **model_configs['additional_kwargs']
@@ -259,10 +263,10 @@ def process_mini_batch(
         e_idx = min(mini_batch_size, s_idx + in_mem)
         # Process current elements
         model_outputs = model(
-            input_ids=response_ids[s_idx:e_idx] if response_ids is not None else None,
-            input_attentions=response_attentions[s_idx:e_idx] if response_attentions is not None else None,
-            context_ids=context_ids[s_idx:e_idx],
-            context_attentions=context_attentions[s_idx:e_idx],
+            input_ids=response_ids[s_idx:e_idx],
+            input_attentions=response_attentions[s_idx:e_idx],
+            context_ids=context_ids[s_idx:e_idx] if context_ids is not None else None,
+            context_attentions=context_attentions[s_idx:e_idx] if context_attentions is not None else None,
             labels=labels[s_idx:e_idx],
             target_reward=rewards[s_idx:e_idx],
             distractor_ids=distractor_ids[s_idx:e_idx],
@@ -489,7 +493,7 @@ def fit_model():
     logging.info(f"Training finished - Current date and time {end_time}")
     logging.info(f"Elapsed time {end_time - start_time}")
     # Restore best validation model weights
-    model.load_state_dict(torch.load(best_model_checkpoint_path))
+    model.load_state_dict(torch.load(os.path.join(best_model_checkpoint_path, 'pytorch_model.bin')))
     logging.info("Best validation model weights restored")
 
 

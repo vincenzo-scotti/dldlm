@@ -62,14 +62,13 @@ lr_scheduler: LinearLR
 current_experiment_dir_path: str
 # Checkpoint paths
 model_checkpoint_path: str
-best_model_checkpoint_path: str
 
 
 def init_environment(config_file_path: str):
     # Declare global variables
     global random_seed, device, mixed_precision, writer, model_configs, tokenizer_configs, optimizer_configs, \
         scheduler_configs, corpus_configs, current_experiment_dir_path, reinforce_configs, \
-        model_checkpoint_path, best_model_checkpoint_path
+        model_checkpoint_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # Read YAML file
@@ -95,9 +94,6 @@ def init_environment(config_file_path: str):
     model_checkpoint_path = os.path.join(model_dir_path, 'latest_checkpoint')
     if not os.path.exists(model_checkpoint_path):
         os.mkdir(model_checkpoint_path)
-    best_model_checkpoint_path = os.path.join(model_dir_path, 'best_checkpoint')
-    if not os.path.exists(best_model_checkpoint_path):
-        os.mkdir(best_model_checkpoint_path)
     tb_dir_path = os.path.join(current_experiment_dir_path, 'tensorboard')
     if not os.path.exists(tb_dir_path):
         os.mkdir(tb_dir_path)
@@ -159,10 +155,13 @@ def clean_environment():
 
 def init_model():
     # Declare global variables
-    global tokenizer_configs, model_configs, tokenizer, model
+    global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path
     # Create tokeniser instance
     tokenizer = DLDLMTokenizer.from_pretrained(tokenizer_configs['pretrained'])
     logging.info("Tokeniser instantiated")
+    # Serialise tokeniser
+    tokenizer.save_pretrained(model_checkpoint_path)
+    logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
     model = DLDLMAllHeadsModel.from_pretrained(model_configs['pretrained'], **model_configs['additional_kwargs'])
     logging.info("DLDLM model instantiated and update")
@@ -254,10 +253,10 @@ def process_mini_batch(
         e_idx = min(mini_batch_size, s_idx + in_mem)
         # Process current elements
         model_outputs = model(
-            input_ids=response_ids[s_idx:e_idx] if response_ids is not None else None,
-            input_attentions=response_attentions[s_idx:e_idx] if response_attentions is not None else None,
-            context_ids=context_ids[s_idx:e_idx],
-            context_attentions=context_attentions[s_idx:e_idx],
+            input_ids=response_ids[s_idx:e_idx],
+            input_attentions=response_attentions[s_idx:e_idx],
+            context_ids=context_ids[s_idx:e_idx] if context_ids is not None else None,
+            context_attentions=context_attentions[s_idx:e_idx] if context_attentions is not None else None,
             labels=labels[s_idx:e_idx],
             target_reward=rewards[s_idx:e_idx],
             distractor_ids=distractor_ids[s_idx:e_idx],
@@ -327,7 +326,7 @@ def process_mini_batch(
 
 def fit_model():
     # Declare global variables
-    global optimizer_configs, writer, corpus, corpus_loader, model_checkpoint_path, best_model_checkpoint_path
+    global optimizer_configs, writer, corpus, corpus_loader, model_checkpoint_path
     # Initialize values
     # Number of elements
     n_train_batches: int = len(corpus_loader)
@@ -386,9 +385,6 @@ def fit_model():
     # Log end of training
     logging.info(f"Training finished - Current date and time {end_time}")
     logging.info(f"Elapsed time {end_time - start_time}")
-    # Restore best validation model weights
-    model.load_state_dict(torch.load(best_model_checkpoint_path))
-    logging.info("Best validation model weights restored")
 
 
 def main(args: Namespace):
