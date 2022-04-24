@@ -458,6 +458,7 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             past: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
             **kwargs
     ):
+        # TODO rework to manage properly latent selection in case of multiple sequences
         if past is not None:
             # If the past is given then proceed in the generation as usual
             input_ids = input_ids[:, -1].unsqueeze(-1)
@@ -470,7 +471,33 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
                 torch.ones((input_ids.size(0), 1), dtype=input_ids.dtype, device=input_ids.device)
             )  # Shape (batch_size, 1)
             attention_mask = kwargs.get('attention_mask', torch.ones_like(input_ids, device=input_ids.device))  # Shape (batch_size, response_length)
-            attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+            try:
+                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+            except RuntimeError:
+                # In case of num return sequences > 1 or beam_size > 1 some elements must be repeated
+                # Expand context attention (if required)
+                if context_attention_mask.shape[0] != attention_mask.shape[0] and context_attention_mask.shape[0] > 0:
+                    # Compute number of repetitions
+                    expand_size = attention_mask.shape[0] // context_attention_mask.shape[0]
+                    # Do expansion
+                    context_attention_mask.repeat_interleave(expand_size, dim=0)
+                # Expand latent attention (if required)
+                if latent_attention_mask.shape[0] != attention_mask.shape[0]:
+                    # Compute number of repetitions
+                    expand_size = attention_mask.shape[0] // latent_attention_mask.shape[0]
+                    # Do expansion
+                    latent_attention_mask.repeat_interleave(expand_size, dim=0)
+                # Compute total attention mask
+                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+                # Expand past key values (if required)
+                if past[0][0].shape(0) != input_ids.shape[0]:
+                    # Compute number of repetitions
+                    expand_size = input_ids.shape[0] // past[0][0].shape[0]
+                    # Do expansion
+                    past = tuple(
+                        (k.repeat_interleave(expand_size, dim=0), v.repeat_interleave(expand_size, dim=0))
+                        for k, v in past
+                    )
 
             token_type_ids = kwargs.get('token_type_ids', None)  # Shape (batch_size, response_length)
             if token_type_ids is not None:
@@ -509,7 +536,7 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             do_sample_latent = kwargs.pop('do_sample_latent', None)
             # Encoding
             context_latent_outputs = self(
-                input_ids=input_ids,
+                # input_ids=input_ids,
                 context_ids=context_ids,
                 context_attention_mask=context_attention_mask,
                 context_token_type_ids=context_token_type_ids,
@@ -889,6 +916,7 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             past: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
             **kwargs
     ):
+        # TODO rework to manage properly latent selection in case of multiple sequences
         if past is not None:
             # If the past is given then proceed in the generation as usual
             input_ids = input_ids[:, -1].unsqueeze(-1)
@@ -901,7 +929,33 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
                 torch.ones((input_ids.size(0), 1), dtype=input_ids.dtype, device=input_ids.device)
             )  # Shape (batch_size, 1)
             attention_mask = kwargs.get('attention_mask', torch.ones_like(input_ids, device=input_ids.device))  # Shape (batch_size, response_length)
-            attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+            try:
+                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+            except RuntimeError:
+                # In case of num return sequences > 1 or beam_size > 1 some elements must be repeated
+                # Expand context attention (if required)
+                if context_attention_mask.shape[0] != attention_mask.shape[0] and context_attention_mask.shape[0] > 0:
+                    # Compute number of repetitions
+                    expand_size = attention_mask.shape[0] // context_attention_mask.shape[0]
+                    # Do expansion
+                    context_attention_mask = context_attention_mask.repeat_interleave(expand_size, dim=0)
+                # Expand latent attention (if required)
+                if latent_attention_mask.shape[0] != attention_mask.shape[0]:
+                    # Compute number of repetitions
+                    expand_size = attention_mask.shape[0] // latent_attention_mask.shape[0]
+                    # Do expansion
+                    latent_attention_mask = latent_attention_mask.repeat_interleave(expand_size, dim=0)
+                # Compute total attention mask
+                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
+                # Expand past key values (if required)
+                if past[0][0].shape[0] != input_ids.shape[0]:
+                    # Compute number of repetitions
+                    expand_size = input_ids.shape[0] // past[0][0].shape[0]
+                    # Do expansion
+                    past = tuple(
+                        (k.repeat_interleave(expand_size, dim=0), v.repeat_interleave(expand_size, dim=0))
+                        for k, v in past
+                    )
 
             token_type_ids = kwargs.get('token_type_ids', None)  # Shape (batch_size, response_length)
             if token_type_ids is not None:
@@ -940,7 +994,7 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             do_sample_latent = kwargs.pop('do_sample_latent', None)
             # Encoding
             context_latent_outputs = self(
-                input_ids=input_ids,
+                # input_ids=input_ids,
                 context_ids=context_ids,
                 context_attention_mask=context_attention_mask,
                 context_token_type_ids=context_token_type_ids,

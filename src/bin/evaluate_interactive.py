@@ -5,12 +5,11 @@ import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
 import yaml
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 
 import random
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.cuda.amp import autocast
 
 from model.dldlm import DLDLMTokenizer, DLDLMLMHeadModel
@@ -188,36 +187,15 @@ def main(args: Namespace):
             context_attention_mask = context_attention_mask.to(device)
             # Encode response prompt using the tokeniser
             input_ids = tokenizer(tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
-            # Gather generation output
-            generation_output = model.generate(
+            # Gather generated ids
+            output_ids = model.generate(
                 input_ids=input_ids,
                 context_ids=context_ids,
                 context_attention_mask=context_attention_mask,
                 **generation_kwargs
-            )
-            # Select most probable response among the generated ones
-            # Gather the token scores
-            scores = torch.cat([token_score.unsqueeze(1) for token_score in generation_output.scores], dim=1)
-            # Cut context from from output sequence
-            response_len = scores.size(1) + 1
-            response_ids = generation_output.sequences[:, -response_len:].clone()
-            # Create a mask to isolate padding and mark it with ignore index
-            valid_token_mask = response_ids[:, :-1] != tokenizer.pad_token_id
-            generated_response_ids = generation_output.sequences[:, -response_len + 1:]
-            generated_response_ids[~valid_token_mask] = -100
-            # Compute separately the length of each output
-            single_response_len = valid_token_mask.long().sum(dim=1) + 1
-            # Compute PPL
-            ppl_scores = torch.exp(
-                F.cross_entropy(
-                    scores.view(-1, scores.size(-1)),
-                    generated_response_ids.reshape(-1),
-                    reduction='none'
-                ).reshape(-1, response_len - 1).sum(dim=1) / single_response_len)
-            # Sort by increasing PPL
-            response_ids, _ = sorted(zip(response_ids, ppl_scores), key=response_sorting_key).pop(0)
+            )[0]
             # Decode the response using the tokenizer
-            output_string: str = tokenizer.decode(response_ids, skip_special_tokens=True).strip()
+            output_string: str = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
             # Print response
             print(">>> " + output_string)
             # Append latest response to conversation history

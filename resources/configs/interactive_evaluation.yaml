@@ -10,11 +10,11 @@ dldlm:
     pretrained: &pretrained ./resources/models/dldlm-small-emp/
     max_context_len: 256
     generation_kwargs:
-      n_return_seqs: 4
+      num_beams: 4
       do_sample: true
       max_length: 1024
       min_length: 1
-      top_p: 0.9
+      top_p: 0.8
   tokeniser:
     pretrained: *pretrained
 
