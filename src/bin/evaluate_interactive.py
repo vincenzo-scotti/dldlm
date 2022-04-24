@@ -22,9 +22,9 @@ random_seed: Optional[int] = None
 device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mixed_precision: bool = True
 # Model
-pretrained_model: str
 generation_kwargs: Dict = dict()
 max_context_len: int = 256
+pretrained_model: str
 model: DLDLMLMHeadModel
 pretrained_tokenizer: str
 tokenizer: DLDLMTokenizer
@@ -34,16 +34,16 @@ current_experiment_dir_path: Optional[str] = None
 # TODO check out for beam sampling
 
 
-def init_environment(model: Optional[str], config_file_path: Optional[str]):
+def init_environment(pretrained_model_id: Optional[str], config_file_path: Optional[str]):
     # Declare global variables
     global random_seed, device, mixed_precision, pretrained_tokenizer, \
-        pretrained_model, generation_kwargs, current_experiment_dir_path
-    assert model is not None or config_file_path is not None, \
-        "You must specify at least one argument between 'model' and 'config_file_path'"
+        pretrained_model, max_context_len, generation_kwargs, current_experiment_dir_path
+    assert pretrained_model_id is not None or config_file_path is not None, \
+        "You must specify at least one argument between 'pretrained_model' and 'config_file_path'"
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-    #If simply using model without config use defaults
-    if model is not None:
+    # If simply using model without config use defaults
+    if pretrained_model_id is not None:
         # Init logging
         logging.basicConfig(level=logging.ERROR)
         # Start Logging info
@@ -53,14 +53,11 @@ def init_environment(model: Optional[str], config_file_path: Optional[str]):
         # Set mixed precision
         logging.info(f"Mixed precision set to '{mixed_precision}'")
         # Load remaining configs
-        pretrained_model = model
-        pretrained_tokenizer = model
-        logging.info("Initialisation completed")
+        pretrained_model = pretrained_model_id
+        pretrained_tokenizer = pretrained_model_id
     else:
         # Read YAML file
         with open(config_file_path) as f:
-            configs_dump_str: str = f.read()
-            f.seek(0)
             configs: Dict = yaml.full_load(f)
         # Create directories
         experiments_dir_path: str = configs['experiments_directory_path']
@@ -105,10 +102,11 @@ def init_environment(model: Optional[str], config_file_path: Optional[str]):
         mixed_precision = configs.get('mixed_precision', mixed_precision)
         logging.info(f"Mixed precision set to '{mixed_precision}'")
         # Load remaining configs
-        model_configs = configs['dldlm']['model']
-        tokenizer_configs = configs['dldlm']['tokeniser']
-        corpus_configs = configs['data']
-        logging.info("Initialisation completed")
+        pretrained_model = configs['dldlm']['model']['pretrained']
+        max_context_len = configs['dldlm']['model']['max_context_len']
+        generation_kwargs = configs['dldlm']['model']['generation_kwargs']
+        pretrained_tokenizer = configs['dldlm']['tokeniser']['pretrained']
+    logging.info("Initialisation completed")
 
 
 def load_model():
@@ -123,6 +121,9 @@ def load_model():
     # Move model to device
     model = model.to(device)
     logging.info(f"Model moved to device: {device}")
+    # Set model in evaluation mode
+    model = model.eval()
+    logging.info("Model set in evaluation mode")
 
 
 def response_sorting_key(args):
@@ -154,14 +155,16 @@ def get_context_len(context):
 def main(args: Namespace):
     # Declare global variables
     global device, tokenizer, model, generation_kwargs
-    # Set model in evaluation mode
-    model = model.eval()
-    logging.info("Model instantiated")
+    # Perform preparation steps
+    # Prepare the environment
+    init_environment(args.pretrained_model, args.config_file_path)
+    # Create model and tokeniser
+    load_model()
     # Begin conversation
     # Container for conversation history
     # The first token is the special begin of sequence token the Transformer uses to signal the begin of the input
     conversation: List[str] = []
-    logging.info("Conversation history initialized")
+    logging.info("Conversation history initialised")
     # Running flag
     evaluating: bool = True
     # Log evaluation start
@@ -179,11 +182,17 @@ def main(args: Namespace):
             append_turn_to_conversation_file(input_string)
             # Gather last n turns to be used as prompt to the model and merge them into a single string
             context_string = str().join(conversation[-get_context_len(conversation):])
-            # Encode the input using the tokenizer
-            context_ids = tokenizer(context_string, return_tensors='pt').input_ids
+            # Encode the context using the tokeniser
+            context_ids, context_attention_mask = tokenizer(context_string, return_tensors='pt').values()
+            context_ids = context_ids.to(device)
+            context_attention_mask = context_attention_mask.to(device)
+            # Encode response prompt using the tokeniser
+            input_ids = tokenizer(tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
             # Gather generation output
             generation_output = model.generate(
+                input_ids=input_ids,
                 context_ids=context_ids,
+                context_attention_mask=context_attention_mask,
                 **generation_kwargs
             )
             # Select most probable response among the generated ones
@@ -232,7 +241,7 @@ if __name__ == "__main__":
     args_parser: ArgumentParser = ArgumentParser()
     # Add arguments to parser
     args_parser.add_argument(
-        '--model',
+        '--pretrained_model',
         type=str, default=None,
         help="Path to a directory containing a DLDLM checkpoint or "
              "remote reference to a HuggingFace model hub checkpoint."
