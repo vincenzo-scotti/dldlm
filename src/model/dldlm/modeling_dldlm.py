@@ -403,54 +403,6 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         )
 
         return output
-    
-    @torch.no_grad()
-    def extend_from_gpt2_initialization(self, updated_tokenizer: DLDLMTokenizer):
-        if len(updated_tokenizer) != self.config.vocab_size:
-            self.resize_token_embeddings(new_num_tokens=len(updated_tokenizer))
-            self.transformer.wte.weight[updated_tokenizer.convert_tokens_to_ids(['<s>', '<s/>'])] = \
-                self.transformer.wte.weight[self.config.eos_token_id].detach().clone()
-            self.config.bow_size = len(updated_tokenizer) - len(updated_tokenizer.unique_no_split_tokens)
-        self.config.bos_token_id = updated_tokenizer.bos_token_id
-        self.config.eos_token_id = updated_tokenizer.eos_token_id
-        self.config.pad_token_id = updated_tokenizer.pad_token_id
-        self.config.mask_token_id = updated_tokenizer.mask_token_id
-        self.config.context_type_token_id = updated_tokenizer.convert_tokens_to_ids('</c>')
-        self.config.response_type_token_id = updated_tokenizer.convert_tokens_to_ids('</r>')
-        self.config.latent_type_token_id = updated_tokenizer.convert_tokens_to_ids('</l>')
-        self.config.policy_token_id = updated_tokenizer.convert_tokens_to_ids('</p>')
-        self.config.posterior_token_id = updated_tokenizer.convert_tokens_to_ids('</q>')
-        self.config.latent_token_ids = updated_tokenizer.convert_tokens_to_ids(
-            [f'</z_{i}>' for i in range(self.config.num_styles)]
-        )
-
-        return self
-
-
-class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
-    _keys_to_ignore_on_load_missing = [r"attn.masked_bias", r"attn.bias", r"lm_head.weight"]
-
-    def __init__(self, config):
-        super(DLDLMAllHeadsModel, self).__init__(config)
-
-        # Hidden layers
-        self.transformer: DLDLMModel = DLDLMModel(config)
-        # Output heads
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.policy_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
-        self.posterior_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
-        self.bow_head = nn.Linear(config.hidden_size, config.bow_size, bias=False)
-        self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
-        if config.num_rewards is not None:
-            self.reward_head = nn.Linear(config.hidden_size, config.num_rewards, bias=False)
-
-        self.init_weights()
-
-    def get_output_embeddings(self) -> nn.Linear:
-        return self.lm_head
-
-    def set_output_embeddings(self, new_embeddings: nn.Linear):
-        self.lm_head = new_embeddings
 
     def prepare_inputs_for_generation(
             self,
@@ -458,6 +410,8 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             past: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
             **kwargs
     ):
+        if not (isinstance(self, DLDLMAllHeadsModel) or isinstance(self, DLDLMLMHeadModel)):
+            raise TypeError()
         # TODO rework to manage properly latent selection in case of multiple sequences
         if past is not None:
             # If the past is given then proceed in the generation as usual
@@ -480,17 +434,17 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
                     # Compute number of repetitions
                     expand_size = attention_mask.shape[0] // context_attention_mask.shape[0]
                     # Do expansion
-                    context_attention_mask.repeat_interleave(expand_size, dim=0)
+                    context_attention_mask = context_attention_mask.repeat_interleave(expand_size, dim=0)
                 # Expand latent attention (if required)
                 if latent_attention_mask.shape[0] != attention_mask.shape[0]:
                     # Compute number of repetitions
                     expand_size = attention_mask.shape[0] // latent_attention_mask.shape[0]
                     # Do expansion
-                    latent_attention_mask.repeat_interleave(expand_size, dim=0)
+                    latent_attention_mask = latent_attention_mask.repeat_interleave(expand_size, dim=0)
                 # Compute total attention mask
                 attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
                 # Expand past key values (if required)
-                if past[0][0].shape(0) != input_ids.shape[0]:
+                if past[0][0].shape[0] != input_ids.shape[0]:
                     # Compute number of repetitions
                     expand_size = input_ids.shape[0] // past[0][0].shape[0]
                     # Do expansion
@@ -565,6 +519,54 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
                 past=past,
                 **kwargs
             )
+    
+    @torch.no_grad()
+    def extend_from_gpt2_initialization(self, updated_tokenizer: DLDLMTokenizer):
+        if len(updated_tokenizer) != self.config.vocab_size:
+            self.resize_token_embeddings(new_num_tokens=len(updated_tokenizer))
+            self.transformer.wte.weight[updated_tokenizer.convert_tokens_to_ids(['<s>', '<s/>'])] = \
+                self.transformer.wte.weight[self.config.eos_token_id].detach().clone()
+            self.config.bow_size = len(updated_tokenizer) - len(updated_tokenizer.unique_no_split_tokens)
+        self.config.bos_token_id = updated_tokenizer.bos_token_id
+        self.config.eos_token_id = updated_tokenizer.eos_token_id
+        self.config.pad_token_id = updated_tokenizer.pad_token_id
+        self.config.mask_token_id = updated_tokenizer.mask_token_id
+        self.config.context_type_token_id = updated_tokenizer.convert_tokens_to_ids('</c>')
+        self.config.response_type_token_id = updated_tokenizer.convert_tokens_to_ids('</r>')
+        self.config.latent_type_token_id = updated_tokenizer.convert_tokens_to_ids('</l>')
+        self.config.policy_token_id = updated_tokenizer.convert_tokens_to_ids('</p>')
+        self.config.posterior_token_id = updated_tokenizer.convert_tokens_to_ids('</q>')
+        self.config.latent_token_ids = updated_tokenizer.convert_tokens_to_ids(
+            [f'</z_{i}>' for i in range(self.config.num_styles)]
+        )
+
+        return self
+
+
+class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
+    _keys_to_ignore_on_load_missing = [r"attn.masked_bias", r"attn.bias", r"lm_head.weight"]
+
+    def __init__(self, config):
+        super(DLDLMAllHeadsModel, self).__init__(config)
+
+        # Hidden layers
+        self.transformer: DLDLMModel = DLDLMModel(config)
+        # Output heads
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self.policy_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
+        self.posterior_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
+        self.bow_head = nn.Linear(config.hidden_size, config.bow_size, bias=False)
+        self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
+        if config.num_rewards is not None:
+            self.reward_head = nn.Linear(config.hidden_size, config.num_rewards, bias=False)
+
+        self.init_weights()
+
+    def get_output_embeddings(self) -> nn.Linear:
+        return self.lm_head
+
+    def set_output_embeddings(self, new_embeddings: nn.Linear):
+        self.lm_head = new_embeddings
 
     def forward(
         self,
@@ -909,120 +911,6 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
 
     def set_output_embeddings(self, new_embeddings):
         self.lm_head = new_embeddings
-
-    def prepare_inputs_for_generation(
-            self,
-            input_ids: torch.LongTensor,  # Shape (batch_size, response_length)
-            past: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-            **kwargs
-    ):
-        # TODO rework to manage properly latent selection in case of multiple sequences
-        if past is not None:
-            # If the past is given then proceed in the generation as usual
-            input_ids = input_ids[:, -1].unsqueeze(-1)
-            # Manage attention
-            context_attention_mask = kwargs.get(
-                'context_attention_mask', torch.empty(0, dtype=input_ids.dtype, device=input_ids.device)
-            )  # Shape (batch_size, context_length)
-            latent_attention_mask = kwargs.get(
-                'latent_attention_mask',
-                torch.ones((input_ids.size(0), 1), dtype=input_ids.dtype, device=input_ids.device)
-            )  # Shape (batch_size, 1)
-            attention_mask = kwargs.get('attention_mask', torch.ones_like(input_ids, device=input_ids.device))  # Shape (batch_size, response_length)
-            try:
-                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
-            except RuntimeError:
-                # In case of num return sequences > 1 or beam_size > 1 some elements must be repeated
-                # Expand context attention (if required)
-                if context_attention_mask.shape[0] != attention_mask.shape[0] and context_attention_mask.shape[0] > 0:
-                    # Compute number of repetitions
-                    expand_size = attention_mask.shape[0] // context_attention_mask.shape[0]
-                    # Do expansion
-                    context_attention_mask = context_attention_mask.repeat_interleave(expand_size, dim=0)
-                # Expand latent attention (if required)
-                if latent_attention_mask.shape[0] != attention_mask.shape[0]:
-                    # Compute number of repetitions
-                    expand_size = attention_mask.shape[0] // latent_attention_mask.shape[0]
-                    # Do expansion
-                    latent_attention_mask = latent_attention_mask.repeat_interleave(expand_size, dim=0)
-                # Compute total attention mask
-                attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
-                # Expand past key values (if required)
-                if past[0][0].shape[0] != input_ids.shape[0]:
-                    # Compute number of repetitions
-                    expand_size = input_ids.shape[0] // past[0][0].shape[0]
-                    # Do expansion
-                    past = tuple(
-                        (k.repeat_interleave(expand_size, dim=0), v.repeat_interleave(expand_size, dim=0))
-                        for k, v in past
-                    )
-
-            token_type_ids = kwargs.get('token_type_ids', None)  # Shape (batch_size, response_length)
-            if token_type_ids is not None:
-                token_type_ids = token_type_ids[:, -1].unsqueeze(-1)
-            position_ids = kwargs.get('position_ids', None)  # Shape (batch_size, response_length)
-            if position_ids is not None:
-                position_ids = position_ids[:, -1].unsqueeze(-1)
-
-            # Check if and how attention is updated
-            return {
-                "input_ids": input_ids,
-                "past_key_values": past,
-                "attention_mask": attention_mask,
-                "position_ids": position_ids,
-                "token_type_ids": token_type_ids,
-                "use_cache": kwargs.get("use_cache"),
-                'do_context': False,
-                'do_policy': False,
-                'do_response_encoding': False,
-                'do_posterior': False,
-                'do_latent': False,
-                'do_response_decoding': True,
-            }
-        else:
-            # Else encode context and latent
-            # Context
-            context_ids = kwargs.pop('context_ids', None)
-            context_attention_mask = kwargs.get('context_attention_mask', None)
-            context_token_type_ids = kwargs.pop('context_token_type_ids', None)
-            context_position_ids = kwargs.pop('context_position_ids', None)
-            # Latent
-            latent_ids = kwargs.pop('latent_ids', None)
-            latent_attention_mask = kwargs.get('latent_attention_mask', None)
-            latent_token_type_ids = kwargs.pop('latent_token_type_ids', None)
-            latent_position_ids = kwargs.pop('latent_position_ids', None)
-            do_sample_latent = kwargs.pop('do_sample_latent', None)
-            # Encoding
-            context_latent_outputs = self(
-                # input_ids=input_ids,
-                context_ids=context_ids,
-                context_attention_mask=context_attention_mask,
-                context_token_type_ids=context_token_type_ids,
-                context_position_ids=context_position_ids,
-                latent_ids=latent_ids,
-                latent_attention_mask=latent_attention_mask,
-                latent_token_type_ids=latent_token_type_ids,
-                latent_position_ids=latent_position_ids,
-                do_sample_latent=do_sample_latent,
-                do_context=True,
-                do_policy=True,
-                do_response_encoding=False,
-                do_posterior=False,
-                do_latent=True,
-                do_response_decoding=False,
-                latent_loss=False,
-                use_cache=True,
-                output_attentions=False,
-                output_hidden_states=False,
-                return_dict=True,
-            )
-            past = context_latent_outputs.past_key_values
-
-            return self.prepare_inputs_for_generation(
-                input_ids,
-                past=past,
-                **kwargs
-            )
 
     def forward(
         self,
