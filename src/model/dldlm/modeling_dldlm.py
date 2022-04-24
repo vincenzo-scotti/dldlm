@@ -462,9 +462,12 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             # If the past is given then proceed in the generation as usual
             input_ids = input_ids[:, -1].unsqueeze(-1)
             # Manage attention
-            context_attention_mask = kwargs.get('context_attention_mask', torch.empty(0, device=input_ids.device))  # Shape (batch_size, context_length)
+            context_attention_mask = kwargs.get(
+                'context_attention_mask', torch.empty(0, dtype=input_ids.dtype, device=input_ids.device)
+            )  # Shape (batch_size, context_length)
             latent_attention_mask = kwargs.get(
-                'latent_attention_mask', torch.ones((input_ids.size(0), 1), device=input_ids.device)
+                'latent_attention_mask',
+                torch.ones((input_ids.size(0), 1), dtype=input_ids.dtype, device=input_ids.device)
             )  # Shape (batch_size, 1)
             attention_mask = kwargs.get('attention_mask', torch.ones_like(input_ids, device=input_ids.device))  # Shape (batch_size, response_length)
             attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
@@ -495,12 +498,12 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             # Else encode context and latent
             # Context
             context_ids = kwargs.pop('context_ids', None)
-            context_attention_mask = kwargs.pop('context_attention_mask', None)
+            context_attention_mask = kwargs.get('context_attention_mask', None)
             context_token_type_ids = kwargs.pop('context_token_type_ids', None)
             context_position_ids = kwargs.pop('context_position_ids', None)
             # Latent
             latent_ids = kwargs.pop('latent_ids', None)
-            latent_attention_mask = kwargs.pop('latent_attention_mask', None)
+            latent_attention_mask = kwargs.get('latent_attention_mask', None)
             latent_token_type_ids = kwargs.pop('latent_token_type_ids', None)
             latent_position_ids = kwargs.pop('latent_position_ids', None)
             do_sample_latent = kwargs.pop('do_sample_latent', None)
@@ -539,9 +542,9 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, [past_length] + response_length, hidden_size)
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,# Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
+        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
         token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
@@ -890,9 +893,12 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             # If the past is given then proceed in the generation as usual
             input_ids = input_ids[:, -1].unsqueeze(-1)
             # Manage attention
-            context_attention_mask = kwargs.get('context_attention_mask', torch.empty(0, device=input_ids.device))  # Shape (batch_size, context_length)
+            context_attention_mask = kwargs.get(
+                'context_attention_mask', torch.empty(0, dtype=input_ids.dtype, device=input_ids.device)
+            )  # Shape (batch_size, context_length)
             latent_attention_mask = kwargs.get(
-                'latent_attention_mask', torch.ones((input_ids.size(0), 1), device=input_ids.device)
+                'latent_attention_mask',
+                torch.ones((input_ids.size(0), 1), dtype=input_ids.dtype, device=input_ids.device)
             )  # Shape (batch_size, 1)
             attention_mask = kwargs.get('attention_mask', torch.ones_like(input_ids, device=input_ids.device))  # Shape (batch_size, response_length)
             attention_mask = torch.cat([context_attention_mask, latent_attention_mask, attention_mask], dim=-1)
@@ -914,6 +920,8 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
                 "use_cache": kwargs.get("use_cache"),
                 'do_context': False,
                 'do_policy': False,
+                'do_response_encoding': False,
+                'do_posterior': False,
                 'do_latent': False,
                 'do_response_decoding': True,
             }
@@ -921,12 +929,12 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             # Else encode context and latent
             # Context
             context_ids = kwargs.pop('context_ids', None)
-            context_attention_mask = kwargs.pop('context_attention_mask', None)
+            context_attention_mask = kwargs.get('context_attention_mask', None)
             context_token_type_ids = kwargs.pop('context_token_type_ids', None)
             context_position_ids = kwargs.pop('context_position_ids', None)
             # Latent
             latent_ids = kwargs.pop('latent_ids', None)
-            latent_attention_mask = kwargs.pop('latent_attention_mask', None)
+            latent_attention_mask = kwargs.get('latent_attention_mask', None)
             latent_token_type_ids = kwargs.pop('latent_token_type_ids', None)
             latent_position_ids = kwargs.pop('latent_position_ids', None)
             do_sample_latent = kwargs.pop('do_sample_latent', None)
@@ -944,6 +952,8 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
                 do_sample_latent=do_sample_latent,
                 do_context=True,
                 do_policy=True,
+                do_response_encoding=False,
+                do_posterior=False,
                 do_latent=True,
                 do_response_decoding=False,
                 latent_loss=False,
@@ -963,9 +973,9 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, [past_length] + response_length, hidden_size)
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,# Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
+        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
         token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
@@ -1043,7 +1053,7 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             policy_hidden_states = policy_hidden_outputs.hidden_states
             policy_attentions = policy_hidden_outputs.attentions
             # Compute P
-            policy_logits = self.posterior_head(policy_last_hidden_state)
+            policy_logits = self.policy_head(policy_last_hidden_state)
         else:
             policy_last_hidden_state = policy_past_key_values = policy_hidden_states = policy_attentions = None
             policy_logits = None
@@ -1184,9 +1194,9 @@ class DLDLMPosteriorSequenceClassification(DLDLMPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, [past_length] + response_length, hidden_size)
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,# Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
+        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
         token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
@@ -1315,9 +1325,9 @@ class DLDLMIRHeadModel(DLDLMPreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, [past_length] + response_length, hidden_size)
+        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,# Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
         token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
