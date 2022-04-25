@@ -1,0 +1,24 @@
+experiment_series: ParlAI_baseline_static_evaluation
+experiment_id: parlai_baseline_generative
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+parlai:
+  model_kwargs:
+    model_file: zoo:dodecadialogue/empathetic_dialogues_ft/model
+    inference: beam
+    beam_size: 5
+    beam_min_length: 10
+    beam_block_ngram: 3
+    beam_context_block_ngram: 3
+
+data:
+  csv_file_path: ./resources/data/dialogue_corpus/corpus.csv
+  splits:
+    - validation
+    - test
+
+log_level: DEBUG
+log_file: true
