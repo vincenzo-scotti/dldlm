@@ -46,12 +46,12 @@ data:
       n_workers: 4
     validation:
       mini_batch_size: &eval_mini_batch_size 8
-        in_mem: &eval_in_mem *eval_mini_batch_size
-        n_workers: &eval_workers 4
-        test:
-          mini_batch_size: *eval_mini_batch_size
-          in_mem: *eval_in_mem
-          n_workers: *eval_workers
+      in_mem: &eval_in_mem *eval_mini_batch_size
+      n_workers: &eval_workers 4
+    test:
+      mini_batch_size: *eval_mini_batch_size
+      in_mem: *eval_in_mem
+      n_workers: *eval_workers
 
 log_level: DEBUG
 log_file: true
