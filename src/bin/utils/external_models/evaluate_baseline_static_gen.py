@@ -9,6 +9,7 @@ from typing import Optional, Dict
 
 import random
 import numpy as np
+import pandas as pd
 import torch
 
 from parlai.core.agents import create_agent
@@ -21,13 +22,16 @@ random_seed: Optional[int] = None
 # Model
 parlai_agent_kwargs: Dict = dict()
 parlai_agent: Optional[ImageSeq2seqAgent] = None
+# Data
+corpus_configs: Dict
+corpus: pd.DataFrame
 # Experiment dir path
 current_experiment_dir_path: Optional[str] = None
 
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, parlai_agent_model_file, parlai_agent_opt_overrides, current_experiment_dir_path
+    global random_seed, parlai_agent_kwargs, corpus_configs, current_experiment_dir_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # Read YAML file
@@ -70,8 +74,8 @@ def init_environment(config_file_path: str):
     copy2(config_file_path, configs_dump_path)
     logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
     # Load remaining configs
-    parlai_agent_model_file = configs['parlai']['model_file']
-    parlai_agent_opt_overrides = configs['parlai']['options_override']
+    parlai_agent_kwargs = configs['parlai']['model_kwargs']
+    corpus_configs = configs['data']
     logging.info("Initialisation completed")
 
 
@@ -107,30 +111,52 @@ def load_data():
     global corpus_configs, corpus
     # Create data frame
     corpus = pd.read_csv(corpus_configs['csv_file_path'])
-    # Filter only desired splits and corpora
-    if corpus_configs.get('splits', None) is not None:
-        corpus = corpus[corpus['split'].isin(corpus_configs['splits'])]
-    if corpus_configs.get('sub_sets', None) is not None:
-        corpus = corpus[corpus['data_set'].isin(corpus_configs['sub_sets'])]
     # Fix NaN issue
     corpus['context'].fillna("", inplace=True)
     logging.info("Corpus loaded")
 
 
 def evaluate_model():
-    # Iterate over utterances in context
-    for i, utterance in enumerate(context.split('\n')):
-        # Utterances at even index are from the speaker (We work with EmaptheticDialogues)
-        if i % 0 == 0:
-            # Observe speaker utterance
-            parlai_agent.observe({'text': utterance, 'episode_done': False})
-        # Utterances at odd index are from the listener (We work with EmaptheticDialogues)
-        else:
-            parlai_agent.self_observe({'text': utterance, 'episode_done': False})
-    # Once the context have been observed, generate the response
-    response = parlai_agent.act()['text']
-    # Reset agent to move to next dialogue
-    parlai_agent.reset()
+    # Declare global variables
+    global corpus, current_experiment_dir_path
+    # Container for generated responses
+    responses = []
+    # Save total number of samples
+    n_elems = len(corpus)
+    # Start evaluation
+    # Get current date and time
+    start_time: datetime = datetime.now()
+    # Log start of evaluation
+    logging.info(f"Evaluation started - Current date and time {start_time}")
+    # Iterate over data frame rows
+    for idx, (_, row) in enumerate(corpus.iterrows()):
+        # Process context
+        # Iterate over utterances in context
+        for i, utterance in enumerate(row['context'].split('\n')):
+            # Utterances at even index are from the speaker (We work with EmaptheticDialogues)
+            if i % 2 == 0:
+                # Observe speaker utterance
+                parlai_agent.observe({'text': utterance, 'episode_done': False})
+            # Utterances at odd index are from the listener (We work with EmpatheticDialogues)
+            else:
+                parlai_agent.self_observe({'text': utterance, 'episode_done': False})
+        # Once the context have been observed, generate the response
+        responses.append(parlai_agent.act()['text'])
+        # Reset agent to move to next dialogue
+        parlai_agent.reset()
+        # Log step completion
+        logging.debug(f"Evaluation step {idx + 1} of {n_elems} completed")
+    # Close evaluation
+    # Get current date and time
+    end_time: datetime = datetime.now()
+    # Log end of evaluation
+    logging.info(f"Evaluation finished - Current date and time {end_time}")
+    logging.info(f"Elapsed time {end_time - start_time}")
+    # Extend data frame to include results
+    corpus['generated_response'] = responses
+    # Serialise results
+    corpus.to_csv(os.path.join(current_experiment_dir_path, 'evaluation_generation_responses.csv'), index=False)
+    logging.info(f"Evaluation results serialised at '{current_experiment_dir_path}'")
 
 
 def main(args: Namespace):
