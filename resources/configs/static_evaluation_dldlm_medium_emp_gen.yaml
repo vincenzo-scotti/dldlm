@@ -1,0 +1,26 @@
+experiment_series: DLDLM_static_evaluation
+experiment_id: dldlm_medium_emp_generative
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+dldlm:
+  model:
+    pretrained: &pretrained ./resources/models/dldlm-medium-emp/
+    generation_kwargs:
+      num_beams: 10
+      do_sample: true
+      max_length: 1024
+      min_length: 1
+      top_p: 0.8
+      no_repeat_ngram_size: 4
+      length_penalty: 0.925
+  tokeniser:
+    pretrained: *pretrained
+
+data:
+  csv_file_path: ./resources/data/dialogue_corpus/human_evaluation_samples.csv
+
+log_level: DEBUG
+log_file: true

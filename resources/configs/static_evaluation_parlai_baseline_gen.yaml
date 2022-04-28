@@ -15,10 +15,7 @@ parlai:
     beam_context_block_ngram: 3
 
 data:
-  csv_file_path: ./resources/data/dialogue_corpus/corpus.csv
-  splits:
-    - validation
-    - test
+  csv_file_path: ./resources/data/dialogue_corpus/human_evaluation_samples.csv
 
 log_level: DEBUG
 log_file: true
