@@ -52,6 +52,7 @@ conda install transformers=4.12.5 -c conda-forge
 conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy -c conda-forge
 python -m spacy download en_core_web_sm
 pip install spacytextblob
+pip install parlai  # This is necessary only to replicate the evaluation (not part of actual requirements/environment)
 ```
 
 For other options refer to the script `scripts/install_environment.sh`.
