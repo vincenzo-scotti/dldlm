@@ -9,13 +9,13 @@ dldlm:
   model:
     pretrained: &pretrained ./resources/models/dldlm-medium-emp/
     generation_kwargs:
-      num_beams: 10
+      num_beams: 8
       do_sample: true
       max_length: 1024
       min_length: 1
       top_p: 0.8
       no_repeat_ngram_size: 4
-      length_penalty: 0.925
+      length_penalty: 0.9
   tokeniser:
     pretrained: *pretrained
 
