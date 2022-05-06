@@ -1,6 +1,6 @@
 # DLDLM
 
-Codebase for the paper "[Learning High-Level Structures for Controlled Conversations]()". 
+Codebase for the paper "[Unsupervised Hierarchical Model for Deep Empathetic Conversational Agents](https://www.overleaf.com/read/bwcpzbfpwgmq)". 
 This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM) described in the paper.
 
 ## Repository structure
@@ -52,7 +52,6 @@ conda install transformers=4.12.5 -c conda-forge
 conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy -c conda-forge
 python -m spacy download en_core_web_sm
 pip install spacytextblob
-pip install parlai  # This is necessary only to replicate the evaluation (not part of actual requirements/environment)
 ```
 
 For other options refer to the script `scripts/install_environment.sh`.
@@ -62,7 +61,7 @@ For other options refer to the script `scripts/install_environment.sh`.
 There is a script available to chat directly with any of the models, it can be run using the following command:
 
 ```bash
-python ./src/bin/evaluate_interactive.py --model dldl-small-emp
+python ./src/bin/evaluate_interactive.py --model dldl-small-emp-lm
 ```
 
 ## References
