@@ -140,7 +140,9 @@ def load_data():
 @autocast(enabled=mixed_precision)
 def evaluate_model():
     # Declare global variables
-    global device, tokenizer, model, corpus, current_experiment_dir_path
+    global device, tokenizer, model, corpus, current_experiment_dir_path, RESULTS_COLS
+    # Add probability columns
+    RESULTS_COLS += [f'p_z_{idx}' for idx in range(model.config.num_styles)]
     # Container for results
     evaluation_results = []
     # Save total number of samples
@@ -174,9 +176,10 @@ def evaluate_model():
             context_ids=context_ids,
         )
         z_posterior: int = torch.argmax(model_outputs.logits, dim=-1).squeeze().cpu().item()
+        q_distribution: List[float] = torch.softmax(model_outputs.logits, dim=-1).squeeze().cpu().tolist()
 
         # Add evaluation entry
-        evaluation_results.append([z_posterior])
+        evaluation_results.append([z_posterior, *q_distribution])
         # Log step completion
         logging.debug(f"Evaluation step {idx + 1} of {n_elems} completed")
     # Close evaluation
