@@ -85,7 +85,7 @@ if __name__ == "__main__":
                              help="Path to the file containing the samples for the evaluation.")
     args_parser.add_argument('--source_dir_paths', nargs='+', type=str,
                              default=[
-                                 './experiments/DLDLM_static_evaluation/dldlm_medium_emp_generative_2022_04_28_12_00_11',
+                                 './experiments/DLDLM_static_evaluation/dldlm_medium_emp_generative_2022_04_28_16_47_25',
                                  './experiments/ParlAI_baseline_static_evaluation/parlai_baseline_generative_2022_04_26_11_47_20'
                              ],
                              help="Path(s) to the directory(ies) containing the generated responses for the evaluation.")
