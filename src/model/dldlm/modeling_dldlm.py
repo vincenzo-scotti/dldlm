@@ -413,6 +413,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         if not (isinstance(self, DLDLMAllHeadsModel) or isinstance(self, DLDLMLMHeadModel)):
             raise TypeError()
         # TODO rework to manage properly latent selection in case of multiple sequences
+        # TODO manage case with context in the same stream of input ids
         if past is not None:
             # If the past is given then proceed in the generation as usual
             input_ids = input_ids[:, -1].unsqueeze(-1)
@@ -478,8 +479,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         else:
             # Else encode context and latent
             # Context
-            context_ids = kwargs.pop('context_ids', None)
-            context_attention_mask = kwargs.get('context_attention_mask', None)
+            context_ids = input_ids = input_ids[:, :-1]  # kwargs.pop('context_ids', None)
+            context_attention_mask = kwargs.get('attention_mask', torch.ones_like(context_ids))[: ,:-1]  # kwargs.get('context_attention_mask', None)
             context_token_type_ids = kwargs.pop('context_token_type_ids', None)
             context_position_ids = kwargs.pop('context_position_ids', None)
             # Latent

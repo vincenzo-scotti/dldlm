@@ -157,16 +157,19 @@ def evaluate_model():
             context_ids, context_attention_mask = tokenizer(context, return_tensors='pt').values()
             context_ids = context_ids.to(device)
             context_attention_mask = context_attention_mask.to(device)
+            len_context = context_ids.size(1)
         else:
+            context = ""
             context_ids, context_attention_mask = None, None
-        input_ids = tokenizer(tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
+            len_context = 0
+        input_ids = tokenizer(context + tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
         # Gather generated ids
         output_ids = model.generate(
             input_ids=input_ids,
-            context_ids=context_ids,
-            context_attention_mask=context_attention_mask,
+            # context_ids=context_ids,
+            # context_attention_mask=context_attention_mask,
             **generation_kwargs
-        )[0]
+        )[0, len_context + 1:]
         # Save generated response
         responses.append(tokenizer.decode(output_ids, skip_special_tokens=True).strip())
         # Log step completion
