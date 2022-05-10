@@ -182,7 +182,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 if reduction:
                     lm_loss = lm_loss.mean()
                 if kwargs.get('lm_loss', self.config.lm_loss):
-                    loss += lm_loss
+                    loss += kwargs.get('lm_loss_weight', self.config.lm_loss_weight) * lm_loss
             else:
                 lm_loss = None
             # Latent code loss
@@ -217,9 +217,11 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_loss = None
                 if kwargs.get('latent_loss', self.config.latent_loss):
                     if kwargs.get('detach_posterior', self.config.detach_posterior):
-                        loss += latent_loss
+                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_loss
                     else:
-                        loss += latent_kl_div_threshold if latent_kl_div_threshold is not None else latent_kl_div
+                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * (
+                            latent_kl_div_threshold if latent_kl_div_threshold is not None else latent_kl_div
+                        )
             else:
                 latent_kl_div = latent_kl_div_threshold = latent_loss = None
             # Retrieval contrastive loss
@@ -232,7 +234,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 if reduction:
                     cls_loss = cls_loss.mean()
                 if kwargs.get('cls_loss', self.config.cls_loss):
-                    loss += cls_loss
+                    loss += kwargs.get('cls_loss_weight', self.config.cls_loss_weight) * cls_loss
             else:
                 cls_loss = None
             # BoW prediction loss
@@ -248,7 +250,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 if reduction:
                     bow_loss = bow_loss.mean()
                 if kwargs.get('bow_loss', self.config.bow_loss):
-                    loss += bow_loss
+                    loss += kwargs.get('bow_loss_weight', self.config.bow_loss_weight) * bow_loss
             else:
                 bow_loss = None
             # Expected reward
@@ -258,7 +260,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 if reduction:
                     rew_loss = rew_loss.mean().square()
                 if kwargs.get('rew_loss', self.config.rew_loss):
-                    loss += rew_loss
+                    loss += kwargs.get('rew_loss_weight', self.config.rew_loss_weight) * rew_loss
             else:
                 rew_loss = None
         else:
@@ -556,7 +558,8 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
         self.policy_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
         self.posterior_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
         self.bow_head = nn.Linear(config.hidden_size, config.bow_size, bias=False)
-        self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
+        if config.num_labels > 0:
+            self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
         if config.num_rewards is not None:
             self.reward_head = nn.Linear(config.hidden_size, config.num_rewards, bias=False)
 
@@ -703,8 +706,14 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             posterior_hidden_states = posterior_hidden_outputs.hidden_states
             posterior_attentions = posterior_hidden_outputs.attentions
             # Compute Q and IR logits
-            posterior_logits = self.posterior_head(posterior_last_hidden_state)
-            cls_logits_pos = self.cls_head(posterior_last_hidden_state)
+            if kwargs.get('do_posterior', self.config.do_posterior):
+                posterior_logits = self.posterior_head(posterior_last_hidden_state)
+            else:
+                posterior_logits = None
+            if kwargs.get('do_cls', self.config.do_cls):
+                cls_logits_pos = self.cls_head(posterior_last_hidden_state)
+            else:
+                cls_logits_pos = None
         else:
             posterior_past_key_values = posterior_last_hidden_state = posterior_hidden_states = posterior_attentions = None
             posterior_logits = cls_logits_pos = None
@@ -751,7 +760,12 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
                         latent_ids is not None or latent_embeds is not None or
                         posterior_logits is not None or policy_logits is not None
                 ) and
-                kwargs.get('do_latent', self.config.do_latent)
+                (
+                        kwargs.get('do_latent', self.config.do_latent) or
+                        kwargs.get('do_bow', self.config.do_bow) or
+                        kwargs.get('do_reward', self.config.do_reward)
+                )
+
         ):
             if latent_ids is None and latent_embeds is None:
                 if kwargs.get('do_sample_latent', self.config.do_sample_latent):
@@ -796,8 +810,14 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             hidden_states = latent_hidden_outputs.hidden_states
             latent_attention_mask = latent_hidden_outputs.attention_mask
             # Compute BoW logits and raw reward
-            bow_logits = self.bow_head(latent_last_hidden_state)
-            raw_reward = self.reward_head(latent_last_hidden_state)
+            if kwargs.get('do_bow', self.config.do_bow):
+                bow_logits = self.bow_head(latent_last_hidden_state)
+            else:
+                bow_logits = None
+            if kwargs.get('do_reward', self.config.do_reward):
+                raw_reward = self.reward_head(latent_last_hidden_state)
+            else:
+                raw_reward = None
         else:
             latent = None
             latent_attention_mask = latent_last_hidden_state = None
@@ -1346,7 +1366,10 @@ class DLDLMIRHeadModel(DLDLMPreTrainedModel):
         else:
             posterior_past_key_values = posterior_hidden_states = posterior_attention_mask = None
         # Process posterior
-        if kwargs.get('do_posterior', self.config.do_posterior):
+        if (
+                kwargs.get('do_response_encoding', self.config.do_response_encoding)
+                and kwargs.get('do_posterior', self.config.do_posterior) or kwargs.get('do_cls', self.config.do_cls)
+        ):
             posterior_hidden_outputs = self.compute_hidden_transformation(
                 input_ids=torch.full((batch_size, 1), self.config.posterior_token_id, device=device),
                 past_key_values=posterior_past_key_values,
@@ -1371,7 +1394,8 @@ class DLDLMIRHeadModel(DLDLMPreTrainedModel):
         if (
                 (distractor_ids is not None or distractor_embeds is not None) and
                 kwargs.get('do_response_encoding', self.config.do_response_encoding) and
-                kwargs.get('do_posterior', self.config.do_posterior)
+                (kwargs.get('do_posterior', self.config.do_posterior) or
+                 kwargs.get('do_cls', self.config.do_cls))
         ):
             distractor_hidden_outputs = self.compute_hidden_transformation(
                 input_ids=distractor_ids,

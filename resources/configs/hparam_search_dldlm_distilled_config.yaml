@@ -1,0 +1,59 @@
+experiment_series: DLDLM_hyperparameters_search
+experiment_id: dldlm_distilled
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+dldlm:
+  model:
+    pretrained: &pretrained distilgpt2
+    additional_kwargs:
+      n_styles: &n_styles 2
+      bow_size: 50256
+      num_labels: 0
+      bow_loss_weight: 4.0
+      task_specific_params:
+        conversational:
+          max_length: 1024
+          min_length: 1
+          do_sample: true
+          top_p: 0.8
+  tokeniser:
+    pretrained: *pretrained
+    n_styles: *n_styles
+
+optimizer:
+  kwargs:
+    lr: &lr 6.25e-5
+  n_epochs: 20
+  max_gradient_norm: 1.0
+
+lr_scheduler:
+  lr_start: *lr
+  lr_stop: 0.0
+  warmup: 0.002
+
+evaluation:
+  validation_period: 2048
+
+data:
+  csv_file_path: ./resources/data/dialogue_corpus/corpus.csv
+  additional_kwargs:
+    distractor: false
+  splits:
+    train:
+      mini_batch_size: 64
+      in_mem: 16
+      n_workers: 4
+    validation:
+      mini_batch_size: &eval_mini_batch_size 16
+      in_mem: &eval_in_mem 16
+      n_workers: &eval_workers 4
+    test:
+      mini_batch_size: *eval_mini_batch_size
+      in_mem: *eval_in_mem
+      n_workers: *eval_workers
+
+log_level: DEBUG
+log_file: true

@@ -66,13 +66,17 @@ class DialogueCorpus(Dataset):
         Optional[torch.Tensor],
         torch.Tensor,
         torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
         torch.Tensor,
         torch.Tensor
     ]:
         # Unpack mini-mini_batch
-        contexts, responses, rewards, distractors = zip(*mini_batch)
+        try:
+            contexts, responses, rewards, distractors = zip(*mini_batch)
+        except ValueError:
+            contexts, responses, rewards = zip(*mini_batch)
+            distractors = None
         # Prepare contexts
         try:  # In case all contexts are None
             contexts = [
@@ -92,10 +96,13 @@ class DialogueCorpus(Dataset):
         # Reward
         rewards = torch.tensor(rewards)
         # Prepare negative sample
-        distractors = [
-            self.tokenizer.bos_token + distractor + self.tokenizer.eos_token for distractor in distractors
-        ]
-        distractor_ids, distractor_attentions = self.tokenizer(distractors, padding=True, return_tensors='pt').values()
+        if distractors is not None:
+            distractors = [
+                self.tokenizer.bos_token + distractor + self.tokenizer.eos_token for distractor in distractors
+            ]
+            distractor_ids, distractor_attentions = self.tokenizer(distractors, padding=True, return_tensors='pt').values()
+        else:
+            distractor_ids = distractor_attentions = None
 
         return (
             context_ids,  # Shape (batch_size, max_context_length)
@@ -206,16 +213,22 @@ class EpisodicDialogueCorpus(Dataset):
         Optional[torch.Tensor],
         torch.Tensor,
         torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
         torch.Tensor,
         torch.Tensor,
         torch.Tensor
     ]:
         # Unpack mini-mini_batch
-        contexts, responses, rewards, distractors, reward_traces = [
-            sum(elem, tuple()) for elem in zip(*[list(zip(*episode)) for episode in mini_batch])
-        ]
+        try:
+            contexts, responses, rewards, distractors, reward_traces = [
+                sum(elem, tuple()) for elem in zip(*[list(zip(*episode)) for episode in mini_batch])
+            ]
+        except ValueError:
+            contexts, responses, rewards, reward_traces = [
+                sum(elem, tuple()) for elem in zip(*[list(zip(*episode)) for episode in mini_batch])
+            ]
+            distractors = None
         # Prepare contexts
         try:  # In case all contexts are None
             contexts = [
@@ -235,10 +248,13 @@ class EpisodicDialogueCorpus(Dataset):
         # Reward
         rewards = torch.tensor(rewards)
         # Prepare negative sample
-        distractors = [
-            self.tokenizer.bos_token + distractor + self.tokenizer.eos_token for distractor in distractors
-        ]
-        distractor_ids, distractor_attentions = self.tokenizer(distractors, padding=True, return_tensors='pt').values()
+        if distractors is not None:
+            distractors = [
+                self.tokenizer.bos_token + distractor + self.tokenizer.eos_token for distractor in distractors
+            ]
+            distractor_ids, distractor_attentions = self.tokenizer(distractors, padding=True, return_tensors='pt').values()
+        else:
+            distractor_ids = distractor_attentions = None
         # Normalised discounted reward for REINFORCE step
         discounted_rewards = torch.tensor([
             sum(

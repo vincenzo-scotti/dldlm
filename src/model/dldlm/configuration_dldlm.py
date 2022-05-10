@@ -37,16 +37,24 @@ class DLDLMConfig(GPT2Config):
             detach_posterior: bool = False,
             reduction: bool = True,
             lm_loss: bool = True,
+            lm_loss_weight: float = 1.0,
             latent_loss: bool = True,
+            latent_loss_weight: float = 1.0,
             cls_loss: bool = True,
+            cls_loss_weight: float = 1.0,
             bow_loss: bool = True,
+            bow_loss_weight: float = 1.0,
             rew_loss: bool = True,
+            rew_loss_weight: float = 1.0,
             lm_obj: bool = False,
             latent_obj: bool = True,
             do_context: bool = True,
             do_policy: bool = True,
+            do_bow: bool = True,
+            do_reward: bool = False,
             do_response_encoding: bool = True,
             do_posterior: bool = True,
+            do_cls: bool = False,
             do_latent: bool = True,
             do_response_decoding: bool = True,
             **kwargs,
@@ -78,21 +86,28 @@ class DLDLMConfig(GPT2Config):
         self.reduction: bool = reduction
         # Losses flags
         self.lm_loss: bool = lm_loss
+        self.lm_loss_weight: float = lm_loss_weight
         self.latent_loss: bool = latent_loss
+        self.latent_loss_weight: float = latent_loss_weight
         self.cls_loss: bool = cls_loss
+        self.cls_loss_weight: float = cls_loss_weight
         self.bow_loss: bool = bow_loss
+        self.bow_loss_weight: float = bow_loss_weight
         self.rew_loss: bool = rew_loss
+        self.rew_loss_weight: float = rew_loss_weight
         self.lm_obj: bool = lm_obj
         self.latent_obj: bool = latent_obj
+        # TODO select number of heads better and associate label names
         # Computation step flags
         self.do_context: bool = do_context
         self.do_policy: bool = do_policy
+        self.do_bow: bool = do_bow
+        self.do_reward: bool = do_reward and (self.n_rewards is not None and self.n_rewards > 0)
         self.do_response_encoding: bool = do_response_encoding
         self.do_posterior: bool = do_posterior
         self.do_latent: bool = do_latent
+        self.do_cls: bool = do_cls
         self.do_response_decoding: bool = do_response_decoding
-
-        # TODO select number of heads better and associate label names
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters
 
