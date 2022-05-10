@@ -55,11 +55,17 @@ def main(args):
         )
         sample_idxs.append('generated_response_' + suffix)
 
+    # Extend result columns
+    new_df_columns = ['sample_idx'] + [f'answer_{i}' for i in range(len(sample_idxs))]
+    # Responses map to analyse results
+    response_map = []
+
     # Shuffle data frame
     samples_shuffled = samples.sample(frac=1)
     # Prepare responses
-    for i, (_, row) in enumerate(samples_shuffled.iterrows()):
-        input("Press enter to print next sample...")
+    for i, (r_idx, row) in enumerate(samples_shuffled.iterrows()):
+        # input("Press enter to print next sample...")
+        response_map.append([r_idx, i])
         print(f"Conversation {str(i).zfill(2)}\n\n")
         print("Context:\n")
         for utterance in row.context.split('\n'):
@@ -69,8 +75,11 @@ def main(args):
         random.shuffle(sample_idxs)
         for idx in sample_idxs:
             print(row[idx], '\n')
+            response_map[-1].append(idx)
         print('\n\n\n')
 
+    # Add result map to data frame
+    samples[new_df_columns] = [row[1:] for row in sorted(response_map, key=lambda x: x[0])]
     # Serialize corpus data frame
     samples.to_csv(os.path.join(args.dest_dir_path, 'human_evaluation_samples.csv'), index=False)
 
