@@ -50,8 +50,8 @@ tokenizer_configs: Dict
 tokenizer: DLDLMTokenizer
 # Data
 corpus_configs: Dict
-corpora: Dict[DataSetSplit, DialogueCorpus]
-corpus_loaders: Dict[DataSetSplit, DataLoader]
+corpora: Dict[DataSetSplit, DialogueCorpus] = {}
+corpus_loaders: Dict[DataSetSplit, DataLoader] = {}
 # Optimisation
 optimizer_configs: Dict
 optimizer: Optimizer
@@ -174,7 +174,7 @@ def init_model():
     logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
     model = DLDLMAllHeadsModel.from_pretrained(
-        model_configs['pretrained'], **model_configs['additional_kwargs']
+        model_configs['pretrained'], **model_configs.get('additional_kwargs', {})
     ).extend_from_gpt2_initialization(
         tokenizer
     )
@@ -191,7 +191,9 @@ def init_data_loaders():
     corpus_loaders = {}
     for split in corpus_configs['splits']:
         # Create data set instance
-        data_set: DialogueCorpus = DialogueCorpus(corpus_configs['csv_file_path'], tokenizer, split)
+        data_set: DialogueCorpus = DialogueCorpus(
+            corpus_configs['csv_file_path'], tokenizer, split, **corpus_configs.get('additional_kwargs', {})
+        )
         logging.info(f"{split.capitalize()} data set instantiated")
         # Create data loader instance
         data_loader: DataLoader = DataLoader(
@@ -253,8 +255,8 @@ def process_mini_batch(
     context_attentions = context_attentions.to(device) if context_attentions is not None else None
     response_ids = response_ids.to(device)
     response_attentions = response_attentions.to(device)
-    distractor_ids = distractor_ids.to(device)
-    distractor_attentions = distractor_attentions.to(device)
+    distractor_ids = distractor_ids.to(device) if distractor_ids is not None else None
+    distractor_attentions = distractor_attentions.to(device) if distractor_attentions is not None else None
     labels = labels.to(device)
     rewards = rewards.to(device)
     # Loop over sub_batches to fit in memory
@@ -269,8 +271,8 @@ def process_mini_batch(
             context_attentions=context_attentions[s_idx:e_idx] if context_attentions is not None else None,
             labels=labels[s_idx:e_idx],
             target_reward=rewards[s_idx:e_idx],
-            distractor_ids=distractor_ids[s_idx:e_idx],
-            distractor_attentions=distractor_attentions[s_idx:e_idx],
+            distractor_ids=distractor_ids[s_idx:e_idx] if distractor_ids is not None else None,
+            distractor_attentions=distractor_attentions[s_idx:e_idx] if distractor_attentions is not None else None,
             reduction=model.training
         )
         # Compute gradients if model is training
@@ -303,7 +305,7 @@ def process_mini_batch(
                 if '_loss' in key or '_div' in key:
                     losses_dict[key] = losses_dict.get(key, []) + model_outputs.cost_function_output[key].cpu().tolist()
             latents += model_outputs.latent.cpu().tolist()
-            policy_predictions += torch.argmax(model_outputs.policy_logits).cpu().tolist()
+            policy_predictions += torch.argmax(model_outputs.policy_logits, dim=-1).cpu().tolist()
     # Update weights model if training
     if model.training:
         # Clip gradient norm
@@ -404,7 +406,7 @@ def fit_model():
             writer.add_scalar('Training Loss', mini_batch_loss, global_step_counter + 1)
             writer.add_scalars(
                 'Training Losses',
-                {LOSS_KEYS_MAPPING[key]: mini_batch_losses_dict[key] for key in LOSS_KEYS_MAPPING},
+                {LOSS_KEYS_MAPPING[key]: mini_batch_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
                 global_step_counter + 1
             )
             # Std output
@@ -423,7 +425,7 @@ def fit_model():
                 with torch.no_grad():
                     # Initialize validation accumulators
                     # Loss
-                    validation_loss: Union[float, List[float]] = 0.0
+                    validation_loss: Union[float, List[float]] = []
                     validation_losses_dict: Dict[str, Union[float, List[float]]] = {}
                     latents: List[int] = []
                     policy_predictions: List[int] = []
@@ -449,7 +451,7 @@ def fit_model():
                     writer.add_scalar('Validation Loss', validation_loss, global_step_counter + 1)
                     writer.add_scalars(
                         'Validation Losses',
-                        {LOSS_KEYS_MAPPING[key]: validation_losses_dict[key] for key in LOSS_KEYS_MAPPING},
+                        {LOSS_KEYS_MAPPING[key]: validation_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
                         global_step_counter + 1
                     )
                     writer.add_scalars(
@@ -464,7 +466,7 @@ def fit_model():
                     )
                     # Checkpoint best model if loss improves
                     # Compute loss for validation
-                    tmp_validation_loss = sum(validation_losses_dict[key] for key in VALIDATION_LOSS_KEYS)
+                    tmp_validation_loss = sum(validation_losses_dict.get(key, 0.0) for key in VALIDATION_LOSS_KEYS)
                     if tmp_validation_loss <= best_validation_loss:
                         # Save model state dictionary
                         model.save_pretrained(best_model_checkpoint_path)
