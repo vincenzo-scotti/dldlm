@@ -1,6 +1,6 @@
 # DLDLM
 
-Codebase for the paper "[Learning High-Level Structures for Controlled Conversations]()". 
+Codebase for the paper "[Learning High-Level Structures for Empathetic Conversations](https://www.overleaf.com/read/gjhjyjtypcgd)". 
 This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM) described in the paper.
 
 ## Repository structure
@@ -49,7 +49,7 @@ conda activate dldlm
 # Install packages
 conda install pytorch=1.10.1 -c pytorch
 conda install transformers=4.12.5 -c conda-forge
-conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy -c conda-forge
+conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy statsmodels -c conda-forge
 python -m spacy download en_core_web_sm
 pip install spacytextblob
 pip install parlai  # This is necessary only to replicate the evaluation (not part of actual requirements/environment)
