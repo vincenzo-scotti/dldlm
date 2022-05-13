@@ -28,29 +28,22 @@ _CONFIG_FOR_DOC = "DLDLMConfig"
 _TOKENIZER_FOR_DOC = "DLDLMTokenizer"
 
 DLDLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
+    "dldlm-distilled",
     "dldlm-small",
-    "dldlm-small-emp",
     "dldlm-medium",
-    "dldlm-medium-emp",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 ]
 
+
 @dataclass
-class DLDLMCostFunctionOutput(ModelOutput):
-    cost: torch.Tensor  # Shape (1,) or (batch_size,)
+class DLDLMLossFunctionOutput(ModelOutput):
     loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    objective: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-
+    
     lm_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    latent_kl_div: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    latent_kl_div_threshold: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    latent_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    cls_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    bow_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    rew_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    latent_kl_div_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    tf_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
 
-    lm_obj: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    latent_obj: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
 
 @dataclass
 class DLDLMModelOutput(BaseModelOutputWithPast):
@@ -60,20 +53,16 @@ class DLDLMModelOutput(BaseModelOutputWithPast):
     attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, length, [past_length] + length))
     attention_mask: Optional[torch.LongTensor] = None  # Shape (batch_size, [past_length] + length)
 
+
 @dataclass
-class DLDLMAllHeadsModelOutput(CausalLMOutputWithPast):
-    cost: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+class DLDLMFullModelOutput(CausalLMOutputWithPast):
     loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    objective: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    cost_function_output: Optional[DLDLMCostFunctionOutput] = None
+    loss_function_output: Optional[DLDLMLossFunctionOutput] = None
 
     logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, response_length, vocab_size)
+    prior_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
     posterior_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
-    policy_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
-    cls_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
-    cls_logits_contrastive: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
-    bow_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, bow_size)
-    raw_reward: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_rewards)
+    tf_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, tf_size)
 
     latent: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
 
@@ -82,10 +71,10 @@ class DLDLMAllHeadsModelOutput(CausalLMOutputWithPast):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (num_hidden_layers * (batch_size, [[[context_length] + 1] + response_length], hidden_size))
     attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, response_length, [[context_length] + 1] + response_length))
 
-    policy_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
-    policy_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[context_length] + 1], embed_size_per_head))
-    policy_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[context_length] + 1], hidden_size)
-    policy_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [context_length] + 1))
+    prior_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
+    prior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[context_length] + 1], embed_size_per_head))
+    prior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[context_length] + 1], hidden_size)
+    prior_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [context_length] + 1))
     posterior_last_hidden_state: Optional[torch.Tensor] = None # Shape (batch_size, hidden_size)
     posterior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[[context_length] + response_length] + 1], embed_size_per_head))
     posterior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[[context_length] + response_length] + 1], hidden_size)
@@ -93,14 +82,12 @@ class DLDLMAllHeadsModelOutput(CausalLMOutputWithPast):
 
 
 @dataclass
-class DLDLMPolicyLMHeadModelOutput(CausalLMOutputWithPast):
-    cost: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+class DLDLMLMHeadModelOutput(CausalLMOutputWithPast):
     loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    objective: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    cost_function_output: Optional[DLDLMCostFunctionOutput] = None
+    loss_function_output: Optional[DLDLMLossFunctionOutput] = None
 
     logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, response_length, vocab_size)
-    policy_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
+    prior_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
 
     latent: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
 
@@ -109,34 +96,26 @@ class DLDLMPolicyLMHeadModelOutput(CausalLMOutputWithPast):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (num_hidden_layers * (batch_size, [[[context_length] + 1] + response_length], hidden_size))
     attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, response_length, [[context_length] + 1] + response_length))
 
-    policy_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
-    policy_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[context_length] + 1], embed_size_per_head))
-    policy_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[context_length] + 1], hidden_size)
-    policy_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [context_length] + 1))
+    prior_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
+    prior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [context_length] + 1, embed_size_per_head))
+    prior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [context_length] + 1, hidden_size)
+    prior_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [context_length] + 1))
 
 
 @dataclass
-class DLDLMPosteriorSequenceClassifierOutput(SequenceClassifierOutputWithPast):
-    logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, )
+class DLDLMSequenceAnalysisModelOutput(SequenceClassifierOutputWithPast):
+    logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
+    prior_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
+    posterior_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, num_styles)
 
-    last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
-    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, [[[context_length] + 1] + response_length], embed_size_per_head)))
-    hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (num_hidden_layers * (batch_size, [[[context_length] + 1] + response_length], hidden_size))
-    attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, response_length, [[context_length] + 1] + response_length))
-
-
-@dataclass
-class DLDLMIRSequenceClassifierOutput(SequenceClassifierOutputWithPast):
-    loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    cost_function_output: Optional[DLDLMCostFunctionOutput] = None
-
-    logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, )
-    logits_contrastive: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
-
-    last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
-    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, [[[context_length] + 1] + response_length], embed_size_per_head)))
-    hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (num_hidden_layers * (batch_size, [[[context_length] + 1] + response_length], hidden_size))
-    attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, response_length, [[context_length] + 1] + response_length))
+    prior_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
+    prior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[context_length] + 1], embed_size_per_head))
+    prior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[context_length] + 1], hidden_size)
+    prior_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [context_length] + 1))
+    posterior_last_hidden_state: Optional[torch.Tensor] = None  # Shape (batch_size, hidden_size)
+    posterior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[[context_length] + response_length] + 1], embed_size_per_head))
+    posterior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[[context_length] + response_length] + 1], hidden_size)
+    posterior_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [[context_length] + response_length] + 1))
 
 
 class DLDLMPreTrainedModel(GPT2PreTrainedModel):
@@ -146,180 +125,89 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     is_parallelizable = False
     supports_gradient_checkpointing = False
 
-    def compute_cost_function(
+    def compute_loss_function(
             self,
             lm_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, response_length, vocab_size)
             labels: Optional[torch.Tensor] = None,  # Shape (batch_size, response_length)
-            policy_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
+            prior_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             posterior_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             latent: Optional[torch.Tensor] = None,  # Shape (batch_size,)
-            cls_logits_pos: Optional[torch.Tensor] = None,  # Shape (batch_size,)
-            cls_logits_neg: Optional[torch.Tensor] = None,  # Shape (batch_size,)
-            bow_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, bow_size)
-            raw_reward: Optional[torch.Tensor] = None,  # Shape (batch_size, num_rewards)
-            target_reward: Optional[torch.Tensor] = None,  # Shape (batch_size, num_rewards)
-            g_return: Optional[torch.Tensor] = None,  # Shape (batch_size,)
+            tf_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, tf_size)
             batch_size: Optional[int] = None,
             **kwargs
-    ) -> DLDLMCostFunctionOutput:
+    ) -> DLDLMLossFunctionOutput:
         # Prepare additional parameters
         reduction: bool = kwargs.get('reduction', self.config.reduction)
         assert reduction or batch_size is not None, "You need to specify the mini_batch size when there is no reduction."
 
-        # Compute losses
-        if self.config.rl_weight < 1.:
-            # Cumulative loss
-            loss = torch.zeros(1 if reduction else batch_size, device=self.device)
-            # Language modeling loss
-            if lm_logits is not None and labels is not None:
-                shift_labels: torch.Tensor = labels[..., 1:].contiguous()
-                shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
-                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1) + 1.
-                lm_loss: Optional[torch.Tensor] = F.cross_entropy(
-                    shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
-                ).view(shift_labels.size()).sum(1)
-                lm_loss /= tgt_len
+        # Cumulative loss
+        loss = torch.zeros(1 if reduction else batch_size, device=self.device)
+        # Language modeling loss
+        if lm_logits is not None and labels is not None:
+            shift_labels: torch.Tensor = labels[..., 1:].contiguous()
+            shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
+            tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1) + 1.
+            lm_loss: Optional[torch.Tensor] = F.cross_entropy(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
+            ).view(shift_labels.size()).sum(1)
+            lm_loss /= tgt_len
+            if reduction:
+                lm_loss = lm_loss.mean()
+            if kwargs.get('lm_loss', self.config.lm_loss):
+                loss += kwargs.get('lm_loss_weight', self.config.lm_loss_weight) * lm_loss
+        else:
+            lm_loss = None
+        # Latent code loss
+        if prior_logits is not None and (posterior_logits is not None or latent is not None):
+            # KL Divergence
+            if posterior_logits is not None:
+                latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
+                    F.log_softmax(prior_logits, -1),
+                    F.log_softmax(posterior_logits, -1),
+                    reduction='none',
+                    log_target=True
+                ).sum(-1)
                 if reduction:
-                    lm_loss = lm_loss.mean()
-                if kwargs.get('lm_loss', self.config.lm_loss):
-                    loss += kwargs.get('lm_loss_weight', self.config.lm_loss_weight) * lm_loss
+                    latent_kl_div_loss = latent_kl_div_loss.mean()
             else:
-                lm_loss = None
-            # Latent code loss
-            if policy_logits is not None and (posterior_logits is not None or latent is not None):
-                # KL Divergence
-                if posterior_logits is not None:
-                    latent_kl_div: Optional[torch.Tensor] = F.kl_div(
-                        F.log_softmax(policy_logits, -1),
-                        F.log_softmax(posterior_logits, -1),
-                        reduction='none',
-                        log_target=True
-                    )
-                    if self.config.kl_threshold > 0.:
-                        latent_kl_div_threshold: Optional[torch.Tensor] = torch.max(
-                            latent_kl_div, torch.full_like(latent_kl_div, self.config.kl_threshold)
-                        ).sum(-1)
-                        if reduction:
-                            latent_kl_div_threshold = latent_kl_div_threshold.mean()
-                    else:
-                        latent_kl_div_threshold = None
-                    latent_kl_div = latent_kl_div.sum(-1)
-                    if reduction:
-                        latent_kl_div = latent_kl_div.mean()
+                latent_kl_div_loss = None
+            # Negative Log-Likelihood
+            if latent is not None:
+                latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
+                if reduction:
+                    latent_nll_loss = latent_nll_loss.mean()
+            else:
+                latent_nll_loss = None
+            if kwargs.get('latent_loss', self.config.latent_loss):
+                if kwargs.get('detach_posterior', self.config.detach_posterior):
+                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_nll_loss
                 else:
-                    latent_kl_div = latent_kl_div_threshold = None
-                # Latent negative log-likelihood
-                if latent is not None:
-                    latent_loss: Optional[torch.Tensor] = F.cross_entropy(policy_logits, latent, reduction='none')
-                    if reduction:
-                        latent_loss = latent_loss.mean()
-                else:
-                    latent_loss = None
-                if kwargs.get('latent_loss', self.config.latent_loss):
-                    if kwargs.get('detach_posterior', self.config.detach_posterior):
-                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_loss
-                    else:
-                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * (
-                            latent_kl_div_threshold if latent_kl_div_threshold is not None else latent_kl_div
-                        )
-            else:
-                latent_kl_div = latent_kl_div_threshold = latent_loss = None
-            # Retrieval contrastive loss
-            if cls_logits_pos is not None and cls_logits_neg is not None:
-                cls_loss: Optional[torch.Tensor] = F.binary_cross_entropy_with_logits(
-                    cls_logits_pos, torch.ones_like(cls_logits_pos), reduction='none'
-                ) + F.binary_cross_entropy_with_logits(
-                    cls_logits_neg, torch.zeros_like(cls_logits_neg), reduction='none'
-                )
-                if reduction:
-                    cls_loss = cls_loss.mean()
-                if kwargs.get('cls_loss', self.config.cls_loss):
-                    loss += kwargs.get('cls_loss_weight', self.config.cls_loss_weight) * cls_loss
-            else:
-                cls_loss = None
-            # BoW prediction loss
-            if bow_logits is not None and labels is not None:
-                bow_labels: torch.Tensor = labels.clone()
-                bow_labels[bow_labels >= self.config.bow_size] = self.config.ignore_id
-                tgt_len = (bow_labels != self.config.ignore_id).float().sum(1)
-                bow_loss: Optional[torch.Tensor] = F.cross_entropy(
-                    bow_logits.repeat(1, bow_labels.size(1), 1).view(-1, bow_logits.size(-1)), bow_labels.view(-1),
-                    reduction='none'
-                ).view(bow_labels.size()).sum(1)
-                bow_loss /= tgt_len
-                if reduction:
-                    bow_loss = bow_loss.mean()
-                if kwargs.get('bow_loss', self.config.bow_loss):
-                    loss += kwargs.get('bow_loss_weight', self.config.bow_loss_weight) * bow_loss
-            else:
-                bow_loss = None
-            # Expected reward
-            if raw_reward is not None and target_reward is not None:
-                # Change to torch.atanh(.)
-                rew_loss = F.mse_loss(torch.tanh(raw_reward), target_reward, reduction='none')
-                if reduction:
-                    rew_loss = rew_loss.mean().square()
-                if kwargs.get('rew_loss', self.config.rew_loss):
-                    loss += kwargs.get('rew_loss_weight', self.config.rew_loss_weight) * rew_loss
-            else:
-                rew_loss = None
+                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
         else:
-            loss = lm_loss = latent_kl_div = latent_kl_div_threshold = latent_loss = cls_loss = bow_loss = rew_loss = None
-
-        # Compute objective
-        if self.config.rl_weight > 0.0 and g_return is not None:
-            # Cumulative objective
-            objective = torch.zeros(1 if reduction else batch_size, device=self.device)
-            # Language modeling objective
-            if lm_logits is not None and labels is not None:
-                shift_labels: torch.Tensor = labels[..., 1:].contiguous()
-                shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
-                tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1) + 1
-                lm_obj: Optional[torch.Tensor] = F.cross_entropy(
-                    shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
-                ).view(shift_labels.size()).sum(1)
-                lm_obj /= tgt_len
-                lm_obj *= g_return
-                if reduction:
-                    lm_obj = lm_obj.mean()
-                if kwargs.get('lm_obj', self.config.lm_obj):
-                    objective += lm_obj
-            else:
-                lm_obj = None
-            # Latent code objective
-            if policy_logits is not None and latent is not None:
-                latent_obj: Optional[torch.Tensor] = F.cross_entropy(policy_logits, latent, reduction='none')
-                latent_obj *= g_return
-                if reduction:
-                    latent_obj = latent_obj.mean()
-                if kwargs.get('latent_obj', self.config.latent_obj):
-                    objective += latent_obj
-            else:
-                latent_obj = None
+            latent_kl_div_loss = latent_nll_loss = None
+        # tf prediction loss
+        if tf_logits is not None and labels is not None:
+            tf_labels: torch.Tensor = labels.clone()
+            tf_labels[tf_labels >= self.config.tf_size] = self.config.ignore_id
+            tgt_len = (tf_labels != self.config.ignore_id).float().sum(1)
+            tf_loss: Optional[torch.Tensor] = F.cross_entropy(
+                tf_logits.repeat(1, tf_labels.size(1), 1).view(-1, tf_logits.size(-1)), tf_labels.view(-1),
+                reduction='none'
+            ).view(tf_labels.size()).sum(1)
+            tf_loss /= tgt_len
+            if reduction:
+                tf_loss = tf_loss.mean()
+            if kwargs.get('tf_loss', self.config.tf_loss):
+                loss += kwargs.get('tf_loss_weight', self.config.tf_loss_weight) * tf_loss
         else:
-            objective = lm_obj = latent_obj = None
+            tf_loss = None
 
-        # Compute cost function to optimize
-        if loss is not None and objective is None:
-            cost = loss
-        elif loss is None and objective is not None:
-            cost = objective
-        else:
-            cost = ((1 - self.config.rl_weight) * loss) + (self.config.rl_weight * objective)
-
-        output = DLDLMCostFunctionOutput(
-            cost=cost,
+        output = DLDLMLossFunctionOutput(
             loss=loss,
-            objective=objective,
             lm_loss=lm_loss,
-            latent_kl_div=latent_kl_div,
-            latent_kl_div_threshold=latent_kl_div_threshold,
-            latent_loss=latent_loss,
-            cls_loss=cls_loss,
-            bow_loss=bow_loss,
-            rew_loss=rew_loss,
-            lm_obj=lm_obj,
-            latent_obj=latent_obj,
+            latent_kl_div_loss=latent_kl_div_loss,
+            latent_nll_loss=latent_nll_loss,
+            tf_loss=tf_loss
         )
 
         return output
@@ -330,9 +218,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, )
             past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
             attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + length)
-            past_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, past_length)
             token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, length)
-            token_type_fill_value: Optional[int] = None,
             position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, length)
             head_mask=None,
             use_cache=None,
@@ -340,35 +226,14 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             output_hidden_states=None,
             hidden_states: Optional[Tuple[torch.FloatTensor]] = None,  # Shape ((num_hidden_layers + 1) * (batch_size, past_length, hidden_size))
     ) -> DLDLMModelOutput:
-        if past_attention_mask is not None:
-            if attention_mask is not None:
-                attention_mask = torch.cat([past_attention_mask, attention_mask], dim=-1)
-            else:
-                if input_ids is not None:
-                    attention_mask = torch.cat(
-                        [past_attention_mask, torch.ones_like(input_ids, device=past_attention_mask.device)], dim=-1
-                    )
-                else:
-                    attention_mask = torch.cat(
-                        [past_attention_mask, torch.ones(input_embeds.size()[:-1], device=past_attention_mask.device)],
-                        dim=-1
-                    )
-        if token_type_ids is None:
-            if input_ids is not None:
-                token_type_ids = torch.full_like(input_ids, token_type_fill_value)
-            else:
-                token_type_ids = torch.full(
-                    input_embeds.size()[:-1],
-                    token_type_fill_value,
-                    device=input_embeds.device,
-                    dtype=torch.long
-                )
+        # Attention and token types are taken as they are since now it is a single sequence
+        # There is no split between context and response
         if position_ids is None:
-            if attention_mask is not None:
+            if attention_mask is not None:  # Compute position IDs from attention
                 position_ids = attention_mask.cumsum(dim=-1).long() - attention_mask.long()
                 if past_key_values is not None:
                     position_ids = position_ids[:, past_key_values[0][0].size(2):]
-            else:
+            else:  # In this case all positions are to be attended
                 if input_ids is not None:
                     position_ids = torch.ones_like(input_ids).cumsum(dim=-1) - 1
                 else:
@@ -412,7 +277,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             past: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,  # Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
             **kwargs
     ):
-        if not (isinstance(self, DLDLMAllHeadsModel) or isinstance(self, DLDLMLMHeadModel)):
+        if not (isinstance(self, DLDLMFullModel) or isinstance(self, DLDLMLMHeadModel)):
             raise TypeError()
         # TODO rework to manage properly latent selection in case of multiple sequences
         if past is not None:
@@ -471,7 +336,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 "token_type_ids": token_type_ids,
                 "use_cache": kwargs.get("use_cache"),
                 'do_context': False,
-                'do_policy': False,
+                'do_prior': False,
                 'do_response_encoding': False,
                 'do_posterior': False,
                 'do_latent': False,
@@ -503,7 +368,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 latent_position_ids=latent_position_ids,
                 do_sample_latent=do_sample_latent,
                 do_context=True,
-                do_policy=True,
+                do_prior=True,
                 do_response_encoding=False,
                 do_posterior=False,
                 do_latent=True,
@@ -521,47 +386,57 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 past=past,
                 **kwargs
             )
+
+    @staticmethod
+    def context_dropout(
+            attention_mask: torch.Tensor,
+            sep_idxs: Tuple[torch.Tensor],
+            p: float = 0.5,
+            training: bool = True,
+            inplace: bool = False
+    ) -> torch.Tensor:
+        # Check if it's training or not
+        if training:
+            # Boolean mask to identify the context tokens
+            context_mask = torch.zeros_like(attention_mask)
+            context_mask[sep_idxs] = 1
+            context_mask = (1 - context_mask.cumsum(dim=-1)).bool()
+            # Vector of 1 and 0 values of the same size of the batch size (represents dropped contexts)
+            dropout_mask = ((1 - torch.rand((attention_mask.shape(0), 1))) > p).long()
+            # Zero out attention mask of dropped contexts
+            if not inplace:
+                attention_mask = attention_mask.clone()
+            attention_mask[context_mask] = (attention_mask * dropout_mask)[context_mask]
+        # Return attention mask
+        return attention_mask
     
     @torch.no_grad()
     def extend_from_gpt2_initialization(self, updated_tokenizer: DLDLMTokenizer):
         if len(updated_tokenizer) != self.config.vocab_size:
             self.resize_token_embeddings(new_num_tokens=len(updated_tokenizer))
-            self.transformer.wte.weight[updated_tokenizer.convert_tokens_to_ids(['<s>', '<s/>'])] = \
-                self.transformer.wte.weight[self.config.eos_token_id].detach().clone()
-            self.config.bow_size = len(updated_tokenizer) - len(updated_tokenizer.unique_no_split_tokens)
-        self.config.bos_token_id = updated_tokenizer.bos_token_id
-        self.config.eos_token_id = updated_tokenizer.eos_token_id
-        self.config.pad_token_id = updated_tokenizer.pad_token_id
+        self.config.pad_token_id = updated_tokenizer.eos_token_id
+        self.config.unk_token_id = updated_tokenizer.unk_token_id
         self.config.mask_token_id = updated_tokenizer.mask_token_id
-        self.config.context_type_token_id = updated_tokenizer.convert_tokens_to_ids('</c>')
-        self.config.response_type_token_id = updated_tokenizer.convert_tokens_to_ids('</r>')
-        self.config.latent_type_token_id = updated_tokenizer.convert_tokens_to_ids('</l>')
-        self.config.policy_token_id = updated_tokenizer.convert_tokens_to_ids('</p>')
-        self.config.posterior_token_id = updated_tokenizer.convert_tokens_to_ids('</q>')
+        self.config.prior_token_id = updated_tokenizer.convert_tokens_to_ids('<|prior|>')
+        self.config.posterior_token_id = updated_tokenizer.convert_tokens_to_ids('<|posterior|>')
         self.config.latent_token_ids = updated_tokenizer.convert_tokens_to_ids(
-            [f'</z_{i}>' for i in range(self.config.num_styles)]
+            [f'<|latentcode{i}|>' for i in range(self.config.num_styles)]
         )
 
         return self
 
 
-class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
+class DLDLMFullModel(DLDLMPreTrainedModel):
     _keys_to_ignore_on_load_missing = [r"attn.masked_bias", r"attn.bias", r"lm_head.weight"]
 
     def __init__(self, config):
-        super(DLDLMAllHeadsModel, self).__init__(config)
+        super(DLDLMFullModel, self).__init__(config)
 
         # Hidden layers
         self.transformer: DLDLMModel = DLDLMModel(config)
         # Output heads
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.policy_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
-        self.posterior_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
-        self.bow_head = nn.Linear(config.hidden_size, config.bow_size, bias=False)
-        if config.num_labels > 0:
-            self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
-        if config.num_rewards is not None:
-            self.reward_head = nn.Linear(config.hidden_size, config.num_rewards, bias=False)
+        self.tf_head = nn.Linear(config.hidden_size, config.tf_size, bias=False)
 
         self.init_weights()
 
@@ -579,25 +454,8 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
         attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
         token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
         position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        context_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, context_length, hidden_size)
-        context_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + context_length)
-        context_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        context_position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        latent_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, 1)
-        latent_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, 1, hidden_size)
-        latent_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + 1)
-        latent_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, 1)
-        latent_position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, 1)
         head_mask=None,
         labels: Optional[torch.LongTensor] = None,  # Shape (batch_size,)
-        target_reward: Optional[torch.FloatTensor] = None,  # Shape (batch_size, num_rewards)
-        distractor_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        distractor_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, distractor_length, hidden_size)
-        distractor_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + distractor_length)
-        distractor_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        distractor_position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        g_return: Optional[torch.Tensor] = None,  # Shape (batch_size,)
         use_cache=None,
         output_attentions=None,
         output_hidden_states=None,
@@ -611,258 +469,139 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
             batch_size = input_embeds.size(0)
         elif past_key_values is not None:
             batch_size = past_key_values[0][0].size(0)
-        elif context_ids is not None:
-            batch_size = context_ids.size(0)
-        elif context_embeds is not None:
-            batch_size = context_embeds.size(0)
-        elif latent_ids is not None:
-            batch_size = latent_ids.size(0)
-        elif latent_embeds is not None:
-            batch_size = latent_embeds.size(0)
         else:
             batch_size = kwargs.get('batch_size', None)
+        # Get special token positions
+        prior_token_id_idxs = torch.where(input_ids == self.config.prior_token_id)
+        posterior_token_id_idxs = torch.where(input_ids == self.config.posterior_token_id)
+        # Get response start idx
+        _, (response_start_idx, *_) = prior_token_id_idxs
+        response_start_idx += 1
+        assert all(idx == (response_start_idx - 1) for idx in prior_token_id_idxs[1]), \
+            "Responses must be aligned (start from same position) to use this model."
         # Get device
         device = next(self.transformer.parameters()).device
 
-        # Process context
-        if (context_ids is not None or context_embeds is not None) and kwargs.get('do_context', self.config.do_context):
-            context_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=context_ids,
-                input_embeds=context_embeds,
-                past_key_values=past_key_values,
-                attention_mask=context_attention_mask,
-                token_type_ids=context_token_type_ids,
-                token_type_fill_value=self.config.context_type_token_id,
-                position_ids=context_position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
+        # ANALYSIS
+        # Dialogue analysis step
+        analysis_hidden_outputs = self.compute_hidden_transformation(
+            input_ids=input_ids,
+            input_embeds=input_embeds,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states
+        )
+        past_key_values = analysis_hidden_outputs.past_key_values
+        hidden_states = analysis_hidden_outputs.hidden_states
+        last_hidden_state = analysis_hidden_outputs.last_hidden_state
+        # Latent analysis step
+        # Latent mask to prevent using common tokens
+        latent_mask = torch.zeros((1, self.config.vocab_size), device=device)
+        latent_mask[:, self.config.latent_token_ids] = 1.
+        latent_mask = torch.log(latent_mask)
+        # Prior
+        prior_last_hidden_state = last_hidden_state[prior_token_id_idxs]
+        prior_logits = self.lm_head(prior_last_hidden_state) + latent_mask
+        # Posterior
+        posterior_last_hidden_state = last_hidden_state[posterior_token_id_idxs]
+        posterior_logits = self.lm_head(posterior_last_hidden_state) + latent_mask
+
+        # DECODING
+        # Latent decoding step
+        if kwargs.get('do_sample_latent', self.config.do_sample_latent):
+            latent_ids = torch.multinomial(
+                torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1), 1
             )
-            past_key_values = context_hidden_outputs.past_key_values
-            hidden_states = context_hidden_outputs.hidden_states
         else:
-            hidden_states = None
-        # Process policy
-        if kwargs.get('do_policy', self.config.do_policy):
-            policy_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.policy_token_id, device=device),
-                past_key_values=past_key_values,
-                past_attention_mask=context_attention_mask,
-                token_type_fill_value=self.config.latent_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            policy_last_hidden_state = policy_hidden_outputs.last_hidden_state.squeeze(1)
-            policy_past_key_values = policy_hidden_outputs.past_key_values
-            policy_hidden_states = policy_hidden_outputs.hidden_states
-            policy_attentions = policy_hidden_outputs.attentions
-            # Compute P
-            policy_logits = self.policy_head(policy_last_hidden_state)
-        else:
-            policy_last_hidden_state = policy_past_key_values = policy_hidden_states = policy_attentions = None
-            policy_logits = None
-        # Process response encoding
-        if (
-                (input_ids is not None or input_embeds is not None) and
-                kwargs.get('do_response_encoding', self.config.do_response_encoding)
-        ):
-            response_encoding_hidden_output = self.compute_hidden_transformation(
-                input_ids=input_ids,
-                input_embeds=input_embeds,
-                past_key_values=past_key_values,
-                attention_mask=attention_mask,
-                past_attention_mask=context_attention_mask,
-                token_type_ids=token_type_ids,
-                token_type_fill_value=self.config.response_type_token_id,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            posterior_past_key_values = response_encoding_hidden_output.past_key_values
-            posterior_hidden_states = response_encoding_hidden_output.hidden_states
-            posterior_attention_mask = response_encoding_hidden_output.attention_mask
-        else:
-            posterior_past_key_values = posterior_hidden_states = posterior_attention_mask = None
-        # Process posterior
-        if kwargs.get('do_posterior', self.config.do_posterior):
-            posterior_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.posterior_token_id, device=device),
-                past_key_values=posterior_past_key_values,
-                past_attention_mask=posterior_attention_mask,
-                token_type_fill_value=self.config.latent_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                hidden_states=posterior_hidden_states,
-            )
-            posterior_last_hidden_state = posterior_hidden_outputs.last_hidden_state.squeeze(1)
-            posterior_past_key_values = posterior_hidden_outputs.past_key_values
-            posterior_hidden_states = posterior_hidden_outputs.hidden_states
-            posterior_attentions = posterior_hidden_outputs.attentions
-            # Compute Q and IR logits
-            if kwargs.get('do_posterior', self.config.do_posterior):
-                posterior_logits = self.posterior_head(posterior_last_hidden_state)
-            else:
-                posterior_logits = None
-            if kwargs.get('do_cls', self.config.do_cls):
-                cls_logits_pos = self.cls_head(posterior_last_hidden_state)
-            else:
-                cls_logits_pos = None
-        else:
-            posterior_past_key_values = posterior_last_hidden_state = posterior_hidden_states = posterior_attentions = None
-            posterior_logits = cls_logits_pos = None
-        # Process contrastive samples
-        if (
-                (distractor_ids is not None or distractor_embeds is not None) and
-                kwargs.get('do_response_encoding', self.config.do_response_encoding) and
-                kwargs.get('do_posterior', self.config.do_posterior)
-        ):
-            distractor_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=distractor_ids,
-                input_embeds=distractor_embeds,
-                past_key_values=past_key_values,
-                attention_mask=distractor_attention_mask,
-                past_attention_mask=context_attention_mask,
-                token_type_ids=distractor_token_type_ids,
-                token_type_fill_value=self.config.response_type_token_id,
-                position_ids=distractor_position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            distractor_past_key_values = distractor_hidden_outputs.past_key_values
-            distractor_attention_mask = distractor_hidden_outputs.attention_mask
-            distractor_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.posterior_token_id, device=device),
-                past_key_values=distractor_past_key_values,
-                past_attention_mask=distractor_attention_mask,
-                token_type_fill_value=self.config.response_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            distractor_last_hidden_state = distractor_hidden_outputs.last_hidden_state.squeeze(1)
-            # Compute IR logits
-            cls_logits_neg = self.cls_head(distractor_last_hidden_state)
-        else:
-            cls_logits_neg = None
-        # Process latent
-        if (
-                (
-                        latent_ids is not None or latent_embeds is not None or
-                        posterior_logits is not None or policy_logits is not None
-                ) and
-                (
-                        kwargs.get('do_latent', self.config.do_latent) or
-                        kwargs.get('do_bow', self.config.do_bow) or
-                        kwargs.get('do_reward', self.config.do_reward)
+            latent_ids = torch.argmax(
+                posterior_logits if posterior_logits is not None else prior_logits, dim=-1
+            ).unsqueeze(-1)
+        latent = latent_ids.squeeze()
+        # Update inputs and memories
+        # Substitute analysis tokens
+        attention_mask = self.context_dropout(
+            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            prior_token_id_idxs,
+            p=self.config.context_pdrop,
+            training=self.training
+        )
+        past_key_values = tuple(
+            (k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
+        ) if response_start_idx > 1 else None
+        input_ids = input_ids.clone()
+        input_ids[prior_token_id_idxs] = latent
+        input_ids[posterior_token_id_idxs] = self.config.eos_token_id
+        input_ids = input_ids[:, response_start_idx - 1:]
+        token_type_ids = token_type_ids[:, response_start_idx - 1:] if token_type_ids is not None else None
+        position_ids = position_ids[:, response_start_idx - 1:] if position_ids is not None else None
+        # Possibly process latent embedding
+        if self.training:
+            # Compute latent embedding
+            latent_embeds = torch.einsum(
+                'vh, bv -> bh',
+                self.transformer.wte.weight,
+                F.gumbel_softmax(
+                    posterior_logits if posterior_logits is not None else prior_logits,
+                    tau=self.config.gumbell_tau
                 )
-
-        ):
-            if latent_ids is None and latent_embeds is None:
-                if kwargs.get('do_sample_latent', self.config.do_sample_latent):
-                    latent = torch.multinomial(
-                        torch.softmax(posterior_logits if posterior_logits is not None else policy_logits, dim=-1), 1
-                    )
-                else:
-                    latent = torch.argmax(posterior_logits if posterior_logits is not None else policy_logits, dim=-1)
-                if self.training:
-                    latent_embeds = torch.einsum(
-                        'zh, bz -> bh',
-                        self.transformer.wte.weight[self.config.latent_token_ids],
-                        F.gumbel_softmax(
-                            posterior_logits if posterior_logits is not None else policy_logits,
-                            tau=self.config.gumbell_tau
-                        )
-                    ).unsqueeze(1)
-                else:
-                    latent_ids = torch.tensor(self.config.latent_token_ids, device=device)[latent].unsqueeze(-1)
-            elif latent_ids is not None:
-                _, latent = torch.where(torch.tensor(self.config.latent_token_ids, device=device) == latent_ids)
-            else:
-                latent = None
-
+            ).unsqueeze(1)
+            # Decode latent embedding
             latent_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=latent_ids,
                 input_embeds=latent_embeds,
                 past_key_values=past_key_values,
-                attention_mask=latent_attention_mask,
-                past_attention_mask=context_attention_mask,
-                token_type_ids=latent_token_type_ids,
-                token_type_fill_value=self.config.latent_type_token_id,
-                position_ids=latent_position_ids,
+                attention_mask=attention_mask[:, :response_start_idx],
+                token_type_ids=token_type_ids[:, :1] if token_type_ids is not None else None,
+                position_ids=position_ids[:, :1] if position_ids is not None else None,
                 head_mask=head_mask,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                hidden_states=hidden_states
+                output_hidden_states=output_hidden_states
             )
-            latent_last_hidden_state = latent_hidden_outputs.last_hidden_state.squeeze(1)
+            input_ids = input_ids[1:]
             past_key_values = latent_hidden_outputs.past_key_values
-            hidden_states = latent_hidden_outputs.hidden_states
-            latent_attention_mask = latent_hidden_outputs.attention_mask
-            # Compute BoW logits and raw reward
-            if kwargs.get('do_bow', self.config.do_bow):
-                bow_logits = self.bow_head(latent_last_hidden_state)
-            else:
-                bow_logits = None
-            if kwargs.get('do_reward', self.config.do_reward):
-                raw_reward = self.reward_head(latent_last_hidden_state)
-            else:
-                raw_reward = None
+            token_type_ids = token_type_ids[:, 1:] if token_type_ids is not None else None
+            position_ids = position_ids[:, 1:] if position_ids is not None else None
+            # Compute TF model logits
+            latent_last_hidden_state = latent_hidden_outputs.latent_last_hidden_state[:, 0]
+            tf_logits = self.tf_head(latent_last_hidden_state)
         else:
-            latent = None
-            latent_attention_mask = latent_last_hidden_state = None
-            bow_logits = raw_reward = None
+            latent_embeds = latent_last_hidden_state = tf_logits = None
         # Process response decoding
-        if (
-                (input_ids is not None or input_embeds is not None) and
-                kwargs.get('do_response_decoding', self.config.do_response_decoding)
-        ):
-            response_decoding_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=input_ids,
-                input_embeds=input_embeds,
-                past_key_values=past_key_values,
-                attention_mask=attention_mask,
-                past_attention_mask=latent_attention_mask,
-                token_type_ids=token_type_ids,
-                token_type_fill_value=self.config.response_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                hidden_states=hidden_states
-            )
-            last_hidden_state = response_decoding_hidden_outputs.last_hidden_state
-            past_key_values = response_decoding_hidden_outputs.past_key_values
-            hidden_states = response_decoding_hidden_outputs.hidden_states
-            attentions = response_decoding_hidden_outputs.attentions
-            # Compute LM logits
-            lm_logits = self.lm_head(last_hidden_state)
-        else:
-            hidden_states = attentions = None
-            lm_logits = None
+        decoding_hidden_outputs = self.compute_hidden_transformation(
+            input_ids=input_ids,
+            input_embeds=input_embeds,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            head_mask=head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            hidden_states=hidden_states
+        )
+        last_hidden_state = decoding_hidden_outputs.last_hidden_state
+        past_key_values = decoding_hidden_outputs.past_key_values
+        hidden_states = decoding_hidden_outputs.hidden_states
+        attentions = decoding_hidden_outputs.attentions
+        # Compute LM logits
+        lm_logits = self.lm_head(last_hidden_state)
+        if tf_logits is None:
 
-        cost_function_output: DLDLMCostFunctionOutput = self.compute_cost_function(
+        loss_function_output: DLDLMLossFunctionOutput = self.compute_loss_function(
             lm_logits=lm_logits,
             labels=labels,
-            policy_logits=policy_logits,
+            prior_logits=prior_logits,
             posterior_logits=posterior_logits,
             latent=latent,
             cls_logits_pos=cls_logits_pos,
             cls_logits_neg=cls_logits_neg,
-            bow_logits=bow_logits,
+            tf_logits=tf_logits,
             raw_reward=raw_reward,
-            target_reward=target_reward,
-            g_return=g_return,
             batch_size=batch_size,
             **kwargs
         )
@@ -872,27 +611,22 @@ class DLDLMAllHeadsModel(DLDLMPreTrainedModel):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        output: DLDLMAllHeadsModelOutput = DLDLMAllHeadsModelOutput(
-            cost=cost_function_output.cost,
-            loss=cost_function_output.loss,
-            objective=cost_function_output.objective,
-            cost_function_output=cost_function_output,
+        output: DLDLMFullModelOutput = DLDLMFullModelOutput(
+            loss=loss_function_output.loss,
+            loss_function_output=loss_function_output,
             logits=lm_logits,
             posterior_logits=posterior_logits,
-            policy_logits=policy_logits,
-            cls_logits=cls_logits_pos,
-            cls_logits_contrastive=cls_logits_neg,
-            bow_logits=bow_logits,
-            raw_reward=raw_reward,
+            prior_logits=prior_logits,
+            tf_logits=tf_logits,
             latent=latent,
             latent_last_hidden_state=latent_last_hidden_state if output_hidden_states else None,
             past_key_values=past_key_values if use_cache else None,
             hidden_states=hidden_states if output_hidden_states else None,
             attentions=attentions if output_attentions else None,
-            policy_last_hidden_state=policy_last_hidden_state if output_hidden_states else None,
-            policy_past_key_values=policy_past_key_values if use_cache else None,
-            policy_hidden_states=policy_hidden_states if output_hidden_states else None,
-            policy_attentions=policy_attentions if output_attentions else None,
+            prior_last_hidden_state=prior_last_hidden_state if output_hidden_states else None,
+            prior_past_key_values=prior_past_key_values if use_cache else None,
+            prior_hidden_states=prior_hidden_states if output_hidden_states else None,
+            prior_attentions=prior_attentions if output_attentions else None,
             posterior_last_hidden_state=posterior_last_hidden_state if output_hidden_states else None,
             posterior_past_key_values=posterior_past_key_values if use_cache else None,
             posterior_hidden_states=posterior_hidden_states if output_hidden_states else None,
@@ -922,7 +656,7 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
         self.transformer: DLDLMModel = DLDLMModel(config)
         # Output heads
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.policy_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
+        self.prior_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
 
         self.init_weights()
 
@@ -998,10 +732,10 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             hidden_states = context_hidden_outputs.hidden_states
         else:
             hidden_states = None
-        # Process policy
-        if kwargs.get('do_policy', self.config.do_policy):
-            policy_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.policy_token_id, device=device),
+        # Process prior
+        if kwargs.get('do_prior', self.config.do_prior):
+            prior_hidden_outputs = self.compute_hidden_transformation(
+                input_ids=torch.full((batch_size, 1), self.config.prior_token_id, device=device),
                 past_key_values=past_key_values,
                 past_attention_mask=context_attention_mask,
                 token_type_fill_value=self.config.latent_type_token_id,
@@ -1010,32 +744,32 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-            policy_last_hidden_state = policy_hidden_outputs.last_hidden_state.squeeze(1)
-            policy_past_key_values = policy_hidden_outputs.past_key_values
-            policy_hidden_states = policy_hidden_outputs.hidden_states
-            policy_attentions = policy_hidden_outputs.attentions
+            prior_last_hidden_state = prior_hidden_outputs.last_hidden_state.squeeze(1)
+            prior_past_key_values = prior_hidden_outputs.past_key_values
+            prior_hidden_states = prior_hidden_outputs.hidden_states
+            prior_attentions = prior_hidden_outputs.attentions
             # Compute P
-            policy_logits = self.policy_head(policy_last_hidden_state)
+            prior_logits = self.prior_head(prior_last_hidden_state)
         else:
-            policy_last_hidden_state = policy_past_key_values = policy_hidden_states = policy_attentions = None
-            policy_logits = None
+            prior_last_hidden_state = prior_past_key_values = prior_hidden_states = prior_attentions = None
+            prior_logits = None
         # Process latent
         if (
-                (latent_ids is not None or latent_embeds is not None or policy_logits is not None) and
+                (latent_ids is not None or latent_embeds is not None or prior_logits is not None) and
                 kwargs.get('do_latent', self.config.do_latent)
         ):
             if latent_ids is None and latent_embeds is None:
                 if kwargs.get('do_sample_latent', self.config.do_sample_latent):
                     latent = torch.multinomial(
-                        torch.softmax(policy_logits, dim=-1), 1
+                        torch.softmax(prior_logits, dim=-1), 1
                     )
                 else:
-                    latent = torch.argmax(policy_logits, dim=-1)
+                    latent = torch.argmax(prior_logits, dim=-1)
                 if self.training:
                     latent_embeds = torch.einsum(
                         'zh, bz -> bh',
                         self.transformer.wte.weight[self.config.latent_token_ids],
-                        F.gumbel_softmax(policy_logits, tau=self.config.gumbell_tau)
+                        F.gumbel_softmax(prior_logits, tau=self.config.gumbell_tau)
                     ).unsqueeze(1)
                 else:
                     latent_ids = torch.tensor(self.config.latent_token_ids)[latent].unsqueeze(-1)
@@ -1096,10 +830,10 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
             hidden_states = attentions = None
             lm_logits = None
 
-        cost_function_output: DLDLMCostFunctionOutput = self.compute_cost_function(
+        cost_function_output: DLDLMLossFunctionOutput = self.compute_loss_function(
             lm_logits=lm_logits,
             labels=labels,
-            policy_logits=policy_logits,
+            prior_logits=prior_logits,
             latent=latent,
             g_return=g_return,
             batch_size=batch_size,
@@ -1111,20 +845,20 @@ class DLDLMLMHeadModel(DLDLMPreTrainedModel):
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        output: DLDLMPolicyLMHeadModelOutput = DLDLMPolicyLMHeadModelOutput(
+        output: DLDLMpriorLMHeadModelOutput = DLDLMpriorLMHeadModelOutput(
             cost=cost_function_output.cost,
             cost_function_output=cost_function_output,
             logits=lm_logits,
-            policy_logits=policy_logits,
+            prior_logits=prior_logits,
             latent=latent,
             latent_last_hidden_state=latent_last_hidden_state if output_hidden_states else None,
             past_key_values=past_key_values if use_cache else None,
             hidden_states=hidden_states if output_hidden_states else None,
             attentions=attentions if output_attentions else None,
-            policy_last_hidden_state=policy_last_hidden_state if output_hidden_states else None,
-            policy_past_key_values=policy_past_key_values if use_cache else None,
-            policy_hidden_states=policy_hidden_states if output_hidden_states else None,
-            policy_attentions=policy_attentions if output_attentions else None,
+            prior_last_hidden_state=prior_last_hidden_state if output_hidden_states else None,
+            prior_past_key_values=prior_past_key_values if use_cache else None,
+            prior_hidden_states=prior_hidden_states if output_hidden_states else None,
+            prior_attentions=prior_attentions if output_attentions else None,
         )
 
         if return_dict:
@@ -1259,191 +993,6 @@ class DLDLMPosteriorSequenceClassification(DLDLMPreTrainedModel):
 
         output: DLDLMPosteriorSequenceClassifierOutput = DLDLMPosteriorSequenceClassifierOutput(
             logits=posterior_logits,
-            last_hidden_state=posterior_last_hidden_state if output_hidden_states else None,
-            past_key_values=posterior_past_key_values if use_cache else None,
-            hidden_states=posterior_hidden_states if output_hidden_states else None,
-            attentions=posterior_attentions if output_attentions else None,
-        )
-
-        if return_dict:
-            return output
-        else:
-            return output.to_tuple()
-
-
-class DLDLMIRHeadModel(DLDLMPreTrainedModel):
-    _keys_to_ignore_on_load_missing = [r"h\.\d+\.attn\.masked_bias", r"lm_head\.weight"]
-
-    def __init__(self, config):
-        super(DLDLMIRHeadModel, self).__init__(config)
-
-        # Hidden layers
-        self.transformer: DLDLMModel = DLDLMModel(config)
-        # Output head
-        self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
-
-        self.init_weights()
-
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        input_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,# Shape (num_hidden_layers * (2 * (batch_size, num_heads, past_length, embed_size_per_head)))
-        attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
-        token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
-        context_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        context_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, context_length, hidden_size)
-        context_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + context_length)
-        context_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        context_position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, context_length)
-        head_mask=None,
-        distractor_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        distractor_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, distractor_length, hidden_size)
-        distractor_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + distractor_length)
-        distractor_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        distractor_position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, distractor_length)
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        **kwargs,
-    ):
-        # Get mini_batch size
-        if input_ids is not None:
-            batch_size = input_ids.size(0)
-        elif input_embeds is not None:
-            batch_size = input_embeds.size(0)
-        elif past_key_values is not None:
-            batch_size = past_key_values[0][0].size(0)
-        elif context_ids is not None:
-            batch_size = context_ids.size(0)
-        elif context_embeds is not None:
-            batch_size = context_embeds.size(0)
-        else:
-            batch_size = kwargs.get('batch_size', None)
-        # Get device
-        device = next(self.transformer.parameters()).device
-
-        # Process context
-        if (context_ids is not None or context_embeds is not None) and kwargs.get('do_context', self.config.do_context):
-            context_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=context_ids,
-                input_embeds=context_embeds,
-                past_key_values=past_key_values,
-                attention_mask=context_attention_mask,
-                token_type_ids=context_token_type_ids,
-                token_type_fill_value=self.config.context_type_token_id,
-                position_ids=context_position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            past_key_values = context_hidden_outputs.past_key_values
-        # Process response encoding
-        if (
-                (input_ids is not None or input_embeds is not None) and
-                kwargs.get('do_response_encoding', self.config.do_response_encoding)
-        ):
-            response_encoding_hidden_output = self.compute_hidden_transformation(
-                input_ids=input_ids,
-                input_embeds=input_embeds,
-                past_key_values=past_key_values,
-                attention_mask=attention_mask,
-                past_attention_mask=context_attention_mask,
-                token_type_ids=token_type_ids,
-                token_type_fill_value=self.config.response_type_token_id,
-                position_ids=position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            posterior_past_key_values = response_encoding_hidden_output.past_key_values
-            posterior_hidden_states = response_encoding_hidden_output.hidden_states
-            posterior_attention_mask = response_encoding_hidden_output.attention_mask
-        else:
-            posterior_past_key_values = posterior_hidden_states = posterior_attention_mask = None
-        # Process posterior
-        if (
-                kwargs.get('do_response_encoding', self.config.do_response_encoding)
-                and kwargs.get('do_posterior', self.config.do_posterior) or kwargs.get('do_cls', self.config.do_cls)
-        ):
-            posterior_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.posterior_token_id, device=device),
-                past_key_values=posterior_past_key_values,
-                past_attention_mask=posterior_attention_mask,
-                token_type_fill_value=self.config.latent_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                hidden_states=posterior_hidden_states,
-            )
-            posterior_last_hidden_state = posterior_hidden_outputs.last_hidden_state.squeeze(1)
-            posterior_past_key_values = posterior_hidden_outputs.past_key_values
-            posterior_hidden_states = posterior_hidden_outputs.hidden_states
-            posterior_attentions = posterior_hidden_outputs.attentions
-            # Compute Q and IR logits
-            cls_logits_pos = self.cls_head(posterior_last_hidden_state)
-        else:
-            posterior_past_key_values = posterior_last_hidden_state = posterior_hidden_states = posterior_attentions = None
-            cls_logits_pos = None
-        # Process contrastive samples
-        if (
-                (distractor_ids is not None or distractor_embeds is not None) and
-                kwargs.get('do_response_encoding', self.config.do_response_encoding) and
-                (kwargs.get('do_posterior', self.config.do_posterior) or
-                 kwargs.get('do_cls', self.config.do_cls))
-        ):
-            distractor_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=distractor_ids,
-                input_embeds=distractor_embeds,
-                past_key_values=past_key_values,
-                attention_mask=distractor_attention_mask,
-                past_attention_mask=context_attention_mask,
-                token_type_ids=distractor_token_type_ids,
-                token_type_fill_value=self.config.response_type_token_id,
-                position_ids=distractor_position_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            distractor_past_key_values = distractor_hidden_outputs.past_key_values
-            distractor_attention_mask = distractor_hidden_outputs.attention_mask
-            distractor_hidden_outputs = self.compute_hidden_transformation(
-                input_ids=torch.full((batch_size, 1), self.config.posterior_token_id, device=device),
-                past_key_values=distractor_past_key_values,
-                past_attention_mask=distractor_attention_mask,
-                token_type_fill_value=self.config.response_type_token_id,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            distractor_last_hidden_state = distractor_hidden_outputs.last_hidden_state.squeeze(1)
-            # Compute IR logits
-            cls_logits_neg = self.cls_head(distractor_last_hidden_state)
-        else:
-            cls_logits_neg = None
-
-        cost_function_output: DLDLMCostFunctionOutput = self.compute_cost_function(
-            cls_logits_pos=cls_logits_pos,
-            cls_logits_neg=cls_logits_neg,
-            batch_size=batch_size,
-            **kwargs
-        )
-
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        output: DLDLMIRSequenceClassifierOutput = DLDLMIRSequenceClassifierOutput(
-            loss=cost_function_output.loss,
-            cost_function_output=cost_function_output,
             last_hidden_state=posterior_last_hidden_state if output_hidden_states else None,
             past_key_values=posterior_past_key_values if use_cache else None,
             hidden_states=posterior_hidden_states if output_hidden_states else None,
