@@ -5,7 +5,7 @@ from transformers.tokenization_utils import PreTrainedTokenizer
 # TODO manage other static class attributes
 class DLDLMTokenizer(GPT2Tokenizer):
     __SPECIAL_TOKENS__ = {
-        'unk_token': '<|unknown|>',
+        # 'unk_token': '<|unknown|>',
         # 'mask_token': '<|mask|>',
         'additional_special_tokens': ['<|prior|>', '<|posterior|>']
     }
@@ -17,7 +17,7 @@ class DLDLMTokenizer(GPT2Tokenizer):
         self.pad_token = self.eos_token
         # Prepare new special tokens
         special_tokens = self.__SPECIAL_TOKENS__.copy()
-        special_tokens['additional_special_tokens'] += [f'<|latentcode{i}|>' for i in range(num_styles)]
+        special_tokens['additional_special_tokens'] += [f'<|latentcode{str(i).zfill(2)}|>' for i in range(num_styles)]
         # Extend token set
         self.add_special_tokens(special_tokens)
         # Return extended tokenizer

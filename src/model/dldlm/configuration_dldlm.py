@@ -21,6 +21,7 @@ class DLDLMConfig(GPT2Config):
             self,
             n_styles: Optional[int] = None,
             tf_size: Optional[int] = None,
+            init_tf_head: bool = True,
 
             gumbell_tau: float = 0.67,
             context_pdrop: float = 0.5,
@@ -55,6 +56,7 @@ class DLDLMConfig(GPT2Config):
         # Model structure hyper-parameters
         self.n_styles: Optional[int] = n_styles
         self.tf_size: Optional[int] = tf_size
+        self.init_tf_head: bool = init_tf_head
         # Latent analysis hyper-parameters and configs
         assert gumbell_tau >= 0.0, f"The Gumbell-Softmax temperature must be a non-negative value in R, " \
                                    f"provided value was {gumbell_tau}"

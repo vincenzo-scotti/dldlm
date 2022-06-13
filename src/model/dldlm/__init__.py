@@ -10,9 +10,8 @@ _import_structure = {
 if is_torch_available():
     _import_structure["modeling_dldlm"] = [
         "DLDLM_PRETRAINED_CONFIG_ARCHIVE_LIST",
-        "DLDLMIRHeadModel",
-        "DLDLMAllHeadsModel",
-        "DLDLMPosteriorSequenceClassification",
+        "DLDLMFullModel",
+        "DLDLMForSequenceClassification",
         "DLDLMLMHeadModel",
         "DLDLMModel",
         "DLDLMPreTrainedModel",
@@ -26,9 +25,8 @@ if TYPE_CHECKING:
     if is_torch_available():
         from modeling_dldlm import (
             DLDLM_PRETRAINED_MODEL_ARCHIVE_LIST,
-            DLDLMIRHeadModel,
-            DLDLMAllHeadsModel,
-            DLDLMPosteriorSequenceClassification,
+            DLDLMFullModel,
+            DLDLMForSequenceClassification,
             DLDLMLMHeadModel,
             DLDLMModel,
             DLDLMPreTrainedModel,
