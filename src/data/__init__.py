@@ -1,4 +1,3 @@
-from .dialogue_corpus import DataSetSplit, DialogueCorpus, EpisodicDialogueCorpus
+from .utils import DataSetSplit, IGNORE_INDEX
+from .dialogue_corpus import PreTrainingCorpus
 
-
-IGNORE_INDEX = -100
