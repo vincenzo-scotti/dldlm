@@ -1,5 +1,6 @@
 import warnings
 import torch
+import math
 
 from typing import Union
 
@@ -71,8 +72,7 @@ class LinearLR(torch.optim.lr_scheduler._LRScheduler):
 
     def get_lr(self):
         if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.")
+            warnings.warn("To get the last learning rate computed by the scheduler, please use `get_last_lr()`.")
 
         current_lr_idx = self.current_lr_idx
         self.current_lr_idx += 1
@@ -83,3 +83,35 @@ class LinearLR(torch.optim.lr_scheduler._LRScheduler):
             lr = 0.0
 
         return [lr]
+
+
+class BetaCyclicalAnnealer:
+    def __init__(
+            self,
+            steps: int,
+            beta_min: float = 0.0,
+            beta_max: float = 1.0,
+            cycles: int = 1,
+            warmup: Union[int, float] = 0.5
+    ):
+        assert not isinstance(warmup, float) or 0. < warmup <= 1.
+
+        self.beta_min: float = beta_min
+        self.beta_max: float = beta_max
+        self.steps: int = steps
+        self.cycles: int = cycles
+        self.cycle_len: int = math.ceil(self.steps / self.cycles)
+        self.warmup: int = warmup if warmup > 1 else math.ceil(warmup * self.cycle_len)
+
+        self.m: float = (self.beta_max - self.beta_min) / self.warmup
+
+        self.current_beta_idx: int = 0
+
+    def get_beta(self) -> float:
+        current_beta_idx = self.current_beta_idx
+        self.current_beta_idx += 1
+
+        if current_beta_idx >= self.steps:
+            raise IndexError()
+
+        return min(self.beta_min + ((current_beta_idx % self.cycle_len) * self.m), self.beta_max)
