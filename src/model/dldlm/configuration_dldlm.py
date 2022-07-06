@@ -42,17 +42,8 @@ class DLDLMConfig(GPT2Config):
             latent_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
 
-            do_context: bool = True,
-            do_prior: bool = True,
-            do_tf: bool = True,
-            do_reward: bool = False,
-            do_encoding: bool = True,
-            do_posterior: bool = True,
-            do_cls: bool = False,
-            do_latent: bool = True,
-            do_decoding: bool = True,
             **kwargs,
-    ):# TODO hanlde AMP here
+    ):
         # Model structure hyper-parameters
         self.n_styles: Optional[int] = n_styles
         self.tf_size: Optional[int] = tf_size
@@ -79,23 +70,9 @@ class DLDLMConfig(GPT2Config):
         self.lm_loss_weight: float = lm_loss_weight
         self.latent_loss_weight: float = latent_loss_weight
         self.tf_loss_weight: float = tf_loss_weight
-        # Computation step flags
-        self.do_context: bool = do_context
-        self.do_prior: bool = do_prior
-        self.do_tf: bool = do_tf
-        self.do_reward: bool = do_reward and (self.n_rewards is not None and self.n_rewards > 0)
-        self.do_response_encoding: bool = do_response_encoding
-        self.do_posterior: bool = do_posterior
-        self.do_latent: bool = do_latent
-        self.do_cls: bool = do_cls
-        self.do_response_decoding: bool = do_response_decoding
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters
 
     @property
     def num_styles(self):
         return self.n_styles
-
-    @property
-    def num_rewards(self):
-        return self.n_rewards
