@@ -31,11 +31,11 @@ class DailyDialog(DialogueCorpus):
         # Correct misspelled topic label
         if original_dialogue['topic'] == 'culture_and_educastion':
             original_dialogue['topic'] = 'culture_and_education'
-        # Dialogue samples generator
-        dialogue_turns = (
-            self._preprocess_text(turn['text']), turn['emotion'], turn['act'], original_dialogue['topic']
+        # Dialogue samples
+        dialogue_turns = [
+            (self._preprocess_text(turn['text']), turn['emotion'], turn['act'], original_dialogue['topic'])
             for turn in original_dialogue['dialogue']
-        )
+        ]
         # Dialogue contexts
         dialogue_contexts = self._get_dialogue_contexts([utterance for utterance, *_ in dialogue_turns])
         # Pre-processed dialogue
@@ -98,10 +98,10 @@ class EmpatheticDialogues(DialogueCorpus):
     def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
         # TODO return also emotions, distractors, and other info
         # Dialogue samples generator
-        dialogue_turns = (
+        dialogue_turns = [
             self._preprocess_text(turn['utterance'])
             for _, turn in original_dialogue.sort_values('utterance_idx').iterrows()
-        )
+        ]
         # Dialogue contexts
         dialogue_contexts = self._get_dialogue_contexts(list(dialogue_turns))
         # Pre-processed dialogue
@@ -133,8 +133,9 @@ class EmpatheticDialogues(DialogueCorpus):
         # Load split of the corpus
         with open(os.path.join(self.corpus_dir_path, file_name)) as f:
             dialogues = [line.strip().split(',') for line in f]
-        dialogues = [sample if len(sample) == len(self.COLUMNS) else sample + [""] for sample in dialogues]
-        dialogues = [[t(x) for x, t in zip(sample, self.DTYPES)] for sample in dialogues]
+        dialogues.pop(0)
+        dialogues = [sample if len(sample) == len(self.COLUMNS) else sample + [None] for sample in dialogues]
+        dialogues = [[t(x) if x is not None else x for x, t in zip(sample, self.DTYPES)] for sample in dialogues]
         dialogues = pd.DataFrame(data=dialogues, columns=self.COLUMNS)
 
         # Standardise corpus
@@ -166,7 +167,7 @@ class PersonaChat(DialogueCorpus):
     def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
         # TODO return also persona, alterantive persona and distractors
         # Dialogue pairs generator
-        dialogue_turn_pairs = (
+        dialogue_turn_pairs = [
             (
                 turn_pair.split(self.RESPONSE_SPLIT_SYM),
                 [self._preprocess_text(distractor) for distractor in distractors.split(self.DISTRACTORS_SEPARATOR_SYM)]
@@ -175,12 +176,12 @@ class PersonaChat(DialogueCorpus):
                     sample.split(self.DISTRACTORS_SPLIT_SYM) for sample in original_dialogue
                     if not (self.Y_PERSONA_SYM in sample or self.P_PERSONA_SYM in sample)
             )
-        )
+        ]
         # Dialogue samples generator
-        dialogue_turns = (
+        dialogue_turns = [
             (self._preprocess_text(turn), distractors)
             for turn_pair, distractors in dialogue_turn_pairs for turn in turn_pair
-        )
+        ]
         # Dialogue contexts
         dialogue_contexts = self._get_dialogue_contexts([utterance for utterance, *_ in dialogue_turns])
         # Pre-processed dialogue
@@ -238,7 +239,7 @@ class WizardOfWikipedia(DialogueCorpus):
     def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
         # TODO return additional data
         # Dialogue samples generator
-        dialogue_turns = (self._preprocess_text(turn['text']) for turn in original_dialogue['dialog'])
+        dialogue_turns = [self._preprocess_text(turn['text']) for turn in original_dialogue['dialog']]
         # Dialogue contexts
         dialogue_contexts = self._get_dialogue_contexts(list(dialogue_turns))
         # Pre-processed dialogue
@@ -293,7 +294,7 @@ class Hope(DialogueCorpus):
     def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
         # TODO return additional data
         # Dialogue samples generator
-        dialogue_turns = (self._preprocess_text(turn['Utterance']) for _, turn in original_dialogue.iterrows())
+        dialogue_turns = [self._preprocess_text(turn['Utterance']) for _, turn in original_dialogue.iterrows()]
         # Dialogue contexts
         dialogue_contexts = self._get_dialogue_contexts(list(dialogue_turns))
         # Pre-processed dialogue

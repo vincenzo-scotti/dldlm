@@ -5,7 +5,6 @@ import re
 import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
-from collections import Counter
 import yaml
 from typing import Optional, Union, Tuple, List, Dict, Pattern
 
@@ -250,7 +249,7 @@ def init_data_loaders():
             data_set,
             batch_size=corpus_configs['splits'][split]['mini_batch_size'],
             num_workers=corpus_configs['splits'][split]['n_workers'],
-            shuffle=split == DataSetSplit.TRAIN,
+            shuffle=DataSetSplit(split) == DataSetSplit.TRAIN,
             collate_fn=data_set.collate
         )
         logging.info(f"{split.capitalize()} data loader instantiated")
@@ -310,7 +309,7 @@ def process_mini_batch(
     # Beta scaling factor
     beta = beta_scheduler.get_beta()
     # Loop over sub_batches to fit in memory
-    idxs = (idx, min(mini_batch_size, idx + in_mem) for idx in range(0, mini_batch_size, in_mem))
+    idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
     for s_idx, e_idx in idxs:
         # Process current elements
         model_outputs = model(
@@ -345,9 +344,9 @@ def process_mini_batch(
                 losses_dict[key] += tmp_losses_dict[key]
         # Else update accumulators collect predicted latents
         else:
-            loss += model_outputs.cost.cpu().tolist()
+            loss += model_outputs.loss.cpu().tolist()
             for key in losses_dict:
-                losses_dict[key] += model_outputs.cost_function_output[key].cpu().tolist()
+                losses_dict[key] += model_outputs.loss_function_output[key].cpu().tolist()
             for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
                 sample['latent'] = tokenizer.decode(latent)
     # Update weights model if training
@@ -413,6 +412,7 @@ def process_evaluation(
         elbo += tmp_losses_dict[ELBO_OBJECTIVE_KEY]
         kl_divergence += tmp_losses_dict[KL_DIVERGENCE_LOSS_KEY]
         processed_data += processed_mini_batch
+        break # TODO remove me
     # Average score
     validation_loss = sum(validation_loss) / n_elements
     validation_losses_dict = {key: sum(validation_losses_dict[key]) / n_elements for key in validation_losses_dict}
@@ -429,13 +429,13 @@ def process_evaluation(
     # Metrics and samples for visualisation
     latent_counts = get_latents_count(processed_data)
     word_counts = get_word_counts(processed_data)
-    traces = get_traces(processed_data, **evaluation_configs['traces'])
+    traces = get_traces(processed_data, **evaluation_configs['metrics']['traces'])
     response_samples = get_response_samples(
         processed_data,
         model,
         tokenizer,
         device,
-        **evaluation_configs['sample_responses'],
+        **evaluation_configs['metrics']['sample_responses'],
         mixed_precision=mixed_precision,
         **model_configs['generate_kwargs']
     )
@@ -521,6 +521,35 @@ def process_evaluation(
 def fit_model():
     # Declare global variables
     global optimizer_configs, writer, corpora, corpus_loaders, model_checkpoint_path, best_model_checkpoint_path
+
+    # Define helper function to call validation
+    def evaluation_step() -> float:
+        # Log start of validation
+        logging.info(
+            f"Validation started at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
+        )
+        # Set model in evaluation mode
+        model.eval()
+        logging.info("Model set in evaluation mode")
+        # Do validation step
+        best_score, ppl, elbo, kl_divergence = process_evaluation(
+            'validation',
+            'validation',
+            f'validation_{str(validation_idx).zfill(4)}',
+            'Validation',
+            step_idx=step_idx,
+            best_validation_score=best_validation_score
+        )
+        # Log end of validation
+        logging.info(
+            f"Validation completed - PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
+        )
+        # Set model back in training mode
+        model.train()
+        logging.info("Model set in training mode")
+
+        return best_score
+
     # Initialize values
     # Initialize train accumulators
     # Number of elements
@@ -545,24 +574,8 @@ def fit_model():
         for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit('train')]):
             # Do validation step if required
             if b_idx % evaluation_configs['validation_period'] == 0:
-                # Log start of validation
-                logging.info(
-                    f"Validation started at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
-                )
-                # Set model in evaluation mode
-                model.eval()
-                logging.info("Model set in evaluation mode")
-                # Do validation step
-                best_validation_score, ppl, elbo, kl_divergence = process_evaluation(
-                    'validation', 'validation', f'validation_{str(validation_idx).zfill(4)}', 'Validation'
-                )
-                # Log end of validation
-                logging.info(
-                    f"Validation completed - PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
-                )
-                # Set model back in training mode
-                model.train()
-                logging.info("Model set in training mode")
+                # Run validation step
+                best_validation_score = evaluation_step()
                 # Update validation counter
                 validation_idx += 1
             # Process current mini-batch
@@ -582,11 +595,15 @@ def fit_model():
             )
             # Update global step counter
             step_idx += 1
+        # Update cls head weights
+        model.update_cls_weights()
         # Checkpoint trained model
         model.save_pretrained(model_checkpoint_path)
         logging.info("Models saved using utilities")
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
+    # Run final validation step
+    best_validation_score = evaluation_step()
     # Close training
     # Get current date and time
     end_time: datetime = datetime.now()

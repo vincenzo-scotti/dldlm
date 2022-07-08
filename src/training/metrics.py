@@ -28,7 +28,7 @@ def get_word_counts(labelled_samples: List[Dict]) -> Dict[str, Counter]:
             ),
             Counter()
         )
-        for label, samples in groupby(labelled_samples, lambda x: x['label'])
+        for label, samples in groupby(labelled_samples, lambda x: x['latent'])
     }
 
     return word_counts
@@ -36,7 +36,7 @@ def get_word_counts(labelled_samples: List[Dict]) -> Dict[str, Counter]:
 
 def get_traces(labelled_samples: List[Dict], window_size: Optional[int] = None) -> List[List[str]]:
     # Get labels from samples
-    traces = [sample['label'] for sample in labelled_samples]
+    traces = [sample['latent'] for sample in labelled_samples]
     # Apply windowing if necessary
     if window_size is not None:
         traces = [

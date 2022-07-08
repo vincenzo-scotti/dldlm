@@ -128,7 +128,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             shift_logits: torch.Tensor = lm_logits[..., :-1, :].contiguous()
             tgt_len: torch.Tensor = (shift_labels != self.config.ignore_id).float().sum(1)
             lm_loss: Optional[torch.Tensor] = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction='none'
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1),
+                reduction='none',
+                ignore_index=self.config.ignore_id
             ).view(shift_labels.size()).sum(1)
             lm_loss /= tgt_len
             if reduction:
@@ -142,8 +145,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             # KL Divergence
             if posterior_logits is not None:
                 latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
-                    F.log_softmax(prior_logits, -1),
-                    F.log_softmax(posterior_logits, -1),
+                    F.log_softmax(prior_logits, -1)[:, self.config.latent_token_ids],
+                    F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
                     reduction='none',
                     log_target=True
                 ).sum(-1)
@@ -167,7 +170,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             latent_kl_div_loss = latent_nll_loss = None
         # ELBO
         if lm_loss is not None and latent_kl_div_loss is not None:
-            elbo: Optional[torch.Tensor] = -(lm_loss - latent_kl_div_loss)
+            elbo: Optional[torch.Tensor] = -(lm_loss + latent_kl_div_loss)
         else:
             elbo = None
         # Prior entropy (not actual loss but metric)
@@ -192,8 +195,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             tf_labels[tf_labels >= self.config.tf_size] = self.config.ignore_id
             tgt_len = (tf_labels != self.config.ignore_id).float().sum(1)
             tf_loss: Optional[torch.Tensor] = F.cross_entropy(
-                tf_logits.repeat(1, tf_labels.size(1), 1).view(-1, tf_logits.size(-1)), tf_labels.view(-1),
-                reduction='none'
+                tf_logits.repeat(1, tf_labels.size(1), 1).view(-1, tf_logits.size(-1)),
+                tf_labels.view(-1),
+                reduction='none',
+                ignore_index=self.config.ignore_id
             ).view(tf_labels.size()).sum(1)
             tf_loss /= tgt_len
             if reduction:
@@ -491,7 +496,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             }
         else:
             # Else encode context and, optionally, sample latent
-            if all(self.configs.prior_token_id in ids for ids in input_ids):
+            if all(self.config.prior_token_id in ids for ids in input_ids):
                 # Get device
                 device = next(self.transformer.parameters()).device
                 # Get prior token position
@@ -528,14 +533,27 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 latent = latent_ids.squeeze()
                 # Add sampled latents in place of the prior tokens
                 input_ids[prior_token_id_idxs] = latent
-            elif all(any(latent_token in ids for latent_token in self.configs.latent_token_ids) for ids in input_ids):
-                past = self._compute_hidden_transformation(
-                    input_ids=input_ids[:, :-1],
-                    attention_mask=attention_mask[:, :-1],
-                    token_type_ids=token_type_ids[:, :-1] if token_type_ids is not None else None,
-                    position_ids=position_ids[:, :-1] if position_ids is not None else None,
-                    use_cache=True,
-                ).past_key_values
+            elif all(any(latent_token in ids for latent_token in self.config.latent_token_ids) for ids in input_ids):
+                # Check if there is some context a part from the latent and compute the past
+                if input_ids.size(1) > 1:
+                    past = self._compute_hidden_transformation(
+                        input_ids=input_ids[:, :-1],
+                        attention_mask=attention_mask[:, :-1],
+                        token_type_ids=token_type_ids[:, :-1] if token_type_ids is not None else None,
+                        position_ids=position_ids[:, :-1] if position_ids is not None else None,
+                        use_cache=True,
+                    ).past_key_values
+                # Else generate directly from the latent
+                else:
+                    return {
+                        "input_ids": input_ids,
+                        "past_key_values": past,
+                        "attention_mask": attention_mask,
+                        "position_ids": position_ids,
+                        "token_type_ids": token_type_ids,
+                        "use_cache": kwargs.get("use_cache"),
+                        "generative": True
+                    }
             else:
                 raise ValueError(
                     "Either a prior latent token or one of the available latent token "
@@ -561,13 +579,13 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             inplace: bool = False
     ) -> torch.LongTensor:
         # Check if it's training or not
-        if training:
+        if training and p > 0.0:
             # Boolean mask to identify the context tokens
             context_mask = torch.zeros_like(attention_mask)
             context_mask[sep_idxs] = 1
             context_mask = (-context_mask.cumsum(dim=-1) + 1).bool()
             # Vector of 1 and 0 values of the same size of the batch size (represents dropped contexts)
-            dropout_mask = ((-torch.rand((attention_mask.size(0), 1), device=context_mask.device) + 1) > p).long()
+            dropout_mask = (torch.rand((attention_mask.size(0), 1), device=context_mask.device) > p).long()
             # Zero out attention mask of dropped contexts
             if not inplace:
                 attention_mask = attention_mask.clone()
@@ -770,6 +788,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             input_embeds=input_embeds,
             past_key_values=past_key_values,
             attention_mask=attention_mask,
+            prior_logits=prior_logits,
+            posterior_logits=posterior_logits,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
             prior_token_id_idxs=prior_token_id_idxs,

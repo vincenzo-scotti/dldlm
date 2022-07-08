@@ -176,7 +176,7 @@ def log_generated_response(
         return f"Corpus:\n\t{kwargs['corpus']}, Split: {kwargs['split']}, Dialogue idx: {kwargs['conversation_idx']}\n\n" + \
                f"Prompted context:\n\t{repr(kwargs['context'])}\n\n" + \
                "Generated responses:\n\t" + "\n\t".join(f"Latent {group_id_regex.search(latent).group(1)}: {kwargs['generated_responses'][latent]}" for latent in kwargs['generated_responses']) + "\n\n" + \
-               f"Original response:\n\t{kwargs['response']}"
+               f"Original response:\n\tLatent {group_id_regex.search(kwargs['latent']).group(1)}: {kwargs['response']}"
 
     text = "\n\n".join(str_sample(**sample) for sample in data)
 

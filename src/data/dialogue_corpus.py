@@ -6,7 +6,7 @@ import pickle
 import torch
 from torch.utils.data import Dataset
 from .utils import DataSetSplit, IGNORE_INDEX
-from corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
+from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
 
 from model import DLDLMTokenizer
 
@@ -40,7 +40,7 @@ class PreTrainingCorpus(Dataset):
         # Data split identifier
         self.data_set_split: DataSetSplit = DataSetSplit(data_set_split)
         # Path to corpus data frame
-        self.corpus_cache_file_path: str = os.path.join(cache_dir_path, f'corpus_{data_set_split}.pbz2')
+        self.corpus_cache_file_path: str = os.path.join(cache_dir_path, f'pretraining_corpus_{data_set_split}.pbz2')
         # Data
         self.data: List[Dict]
 
@@ -74,12 +74,19 @@ class PreTrainingCorpus(Dataset):
         return self.data[index]
 
     def _generate_data_cache(self, *args, **kwargs):
-        # Create corpora instances and gather the data
-        self.data = [
-            sample
+        # Create corpora instances
+        corpora = [
+            CORPORA[corpus_id](
+                os.path.join(self.corpora_dir_path, corpus_id),
+                self.data_set_split.value,
+                self.tokenizer,
+                *args,
+                **kwargs
+            )
             for corpus_id in self.corpus_list
-            for sample in CORPORA[corpus_id](os.path.join(self.corpora_dir_path, corpus_id), *args, **kwargs)
         ]
+        # and gather the data
+        self.data = [corpus[idx] for corpus in corpora for idx in range(len(corpus))]
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
             pickle.dump(self.data, f)
@@ -108,7 +115,7 @@ class PreTrainingCorpus(Dataset):
             [self.tokenizer.eos_token + sample['response'] + self.tokenizer.eos_token for sample in mini_batch],
             padding=True,
             return_tensors='pt'
-        ).input_ids
+        )
         labels = label_encodings.input_ids
         labels[~label_encodings.attention_mask.bool()] = IGNORE_INDEX
 
