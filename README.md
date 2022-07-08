@@ -1,6 +1,6 @@
 # DLDLM
 
-Codebase for the paper "[Learning High-Level Structures for Empathetic Conversations](https://www.overleaf.com/read/gjhjyjtypcgd)". 
+Codebase for the paper "[Learning high-level structures in open-domain conversations for task oriented chatbots]()". 
 This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM) described in the paper.
 
 ## Repository structure
@@ -43,26 +43,25 @@ To manually install all the required packages, instead, run the following comman
 
 ```bash
 # Create anaconda environment (skip cudatoolkit option if you don't want to use the GPU)
-conda create -n dldlm python=3.8 cudatoolkit=11.3
+conda create -n dldlm python=3.10 cudatoolkit=11.3
 # Activate anaconda environment
 conda activate dldlm
 # Install packages
-conda install pytorch=1.10.1 -c pytorch
-conda install transformers=4.12.5 -c conda-forge
-conda install tensorboard=2.8.0 pandas scikit-learn matplotlib seaborn spacy statsmodels -c conda-forge
+conda install pytorch=1.11.0 torchvision=0.12.0 -c pytorch
+conda install -c conda-forge transformers=4.18.0
+conda install -c conda-forge tensorboard=2.9.1 pandas scikit-learn matplotlib seaborn spacy jupyterlab
 python -m spacy download en_core_web_sm
 pip install spacytextblob
-pip install parlai  # This is necessary only to replicate the evaluation (not part of actual requirements/environment)
+conda install -c plotly plotly
+conda install -c conda-forge python-kaleido
 ```
-
-For other options refer to the script `scripts/install_environment.sh`.
 
 ## Chatting
 
 There is a script available to chat directly with any of the models, it can be run using the following command:
 
 ```bash
-python ./src/bin/evaluate_interactive.py --model dldl-small-emp
+python ./src/bin/evaluate_interactive.py
 ```
 
 ## References

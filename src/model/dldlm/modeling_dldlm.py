@@ -41,6 +41,7 @@ class DLDLMLossFunctionOutput(ModelOutput):
     
     lm_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_kl_div_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    elbo: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     posterior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -164,6 +165,11 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
         else:
             latent_kl_div_loss = latent_nll_loss = None
+        # ELBO
+        if lm_loss is not None and latent_kl_div_loss is not None:
+            elbo: Optional[torch.Tensor] = -(lm_loss - latent_kl_div_loss)
+        else:
+            elbo = None
         # Prior entropy (not actual loss but metric)
         if prior_logits is not None:
             prior_dist = torch.softmax(prior_logits, dim=-1)
@@ -202,6 +208,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             lm_loss=lm_loss,
             latent_kl_div_loss=latent_kl_div_loss,
             latent_nll_loss=latent_nll_loss,
+            elbo=elbo,
             prior_dist_entropy=prior_dist_entropy,
             posterior_dist_entropy=posterior_dist_entropy,
             tf_loss=tf_loss

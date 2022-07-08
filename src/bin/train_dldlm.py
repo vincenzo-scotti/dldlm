@@ -1,41 +1,51 @@
 import os
 import sys
 from shutil import copy2, move
+import re
 import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
 from collections import Counter
 import yaml
-from typing import Optional, Union, Tuple, List, Dict
+from typing import Optional, Union, Tuple, List, Dict, Pattern
 
 import random
 import math
 import numpy as np
-from sklearn.metrics import classification_report
+from training import get_word_counts, get_traces, get_latents_count, get_response_samples
+from training import log_word_counts, log_traces, log_latents_count, log_generated_response
+from training import plot_word_counts, plot_traces
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.cuda.amp import autocast, GradScaler
-from training import LinearLR
+from training import LinearLR, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
-from data import DialogueCorpus, DataSetSplit
-from model import DLDLMTokenizer, DLDLMAllHeadsModel
-
+from data import PreTrainingCorpus, DataSetSplit
+from model import DLDLMTokenizer, DLDLMFullModel
+# TODO add fine tuning script
+# TODO add LR plot
 # TODO add warm restart
 
 # Constants
-VALIDATION_LOSS_KEYS = ['lm_loss', 'cls_loss', 'bow_loss', 'rew_loss']
+VALIDATION_OBJECTIVE_KEY = 'elbo'
 PPL_NLL_LOSS_KEY = 'lm_loss'
+ELBO_OBJECTIVE_KEY = 'elbo'
+KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
 LOSS_KEYS_MAPPING = {
-    'lm_loss': 'LM',
-    'latent_kl_div': 'KL Divergence',
-    'latent_kl_div_threshold': 'KL Divergence (threshold)',
-    'latent_loss': 'Latent negative log-likelihood',
-    'cls_loss': 'Contrastive IR',
-    'bow_loss': 'BoW reconstruction',
-    'rew_loss': 'Immediate reward prediction'
+    'lm_loss': 'Language Modelling',
+    'latent_kl_div_loss': 'Latent KL Divergence',
+    'latent_nll_loss': 'Latent Negative Log-Likelihood',
+    'elbo': 'Evidence Lower BOund',
+    'prior_dist_entropy': 'Prior Latent Distribution Entropy',
+    'posterior_dist_entropy': 'Posterior Latent Distribution Entropy',
+    'tf_loss': 'Term-Frequency Cross-Entropy',
 }
+
+LATENT_REGEX: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>')
+MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
+
 
 # Variables to control model and optimization parameters
 # Environment
@@ -45,22 +55,30 @@ mixed_precision: bool = True
 writer: SummaryWriter
 # Model
 model_configs: Dict
-model: DLDLMAllHeadsModel
+model: DLDLMFullModel
 tokenizer_configs: Dict
 tokenizer: DLDLMTokenizer
 # Data
 corpus_configs: Dict
-corpora: Dict[DataSetSplit, DialogueCorpus] = {}
-corpus_loaders: Dict[DataSetSplit, DataLoader] = {}
+corpora: Dict[DataSetSplit, PreTrainingCorpus] = dict()
+corpus_loaders: Dict[DataSetSplit, DataLoader] = dict()
 # Optimisation
 optimizer_configs: Dict
 optimizer: Optimizer
 scaler: Optional[GradScaler] = None
-scheduler_configs: Dict
+lr_scheduler_configs: Dict
 lr_scheduler: LinearLR
+beta_scheduler_configs: Dict
+beta_scheduler: BetaCyclicalAnnealer
 evaluation_configs: Dict
 # Experiment dir path
+latent_count_txt_dir_path: str
 current_experiment_dir_path: str
+word_count_plots_dir_path: str
+trace_plots_dir_path: str
+word_count_txt_dir_path: str
+trace_txt_dir_path: str
+sample_responses_txt_dir_path: str
 # Checkpoint paths
 model_checkpoint_path: str
 best_model_checkpoint_path: str
@@ -68,9 +86,12 @@ best_model_checkpoint_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, writer, model_configs, tokenizer_configs, optimizer_configs, \
-        scheduler_configs, evaluation_configs, corpus_configs, \
-        current_experiment_dir_path, model_checkpoint_path, best_model_checkpoint_path
+    global random_seed, device, mixed_precision, writer
+    global model_configs, tokenizer_configs, corpus_configs, \
+        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
+    global current_experiment_dir_path, latent_count_txt_dir_path, word_count_plots_dir_path, trace_plots_dir_path, \
+        word_count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path, \
+        model_checkpoint_path, best_model_checkpoint_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # Read YAML file
@@ -102,6 +123,30 @@ def init_environment(config_file_path: str):
     tb_dir_path = os.path.join(current_experiment_dir_path, 'tensorboard')
     if not os.path.exists(tb_dir_path):
         os.mkdir(tb_dir_path)
+    plots_dir_path = os.path.join(current_experiment_dir_path, 'plots')
+    if not os.path.exists(plots_dir_path):
+        os.mkdir(plots_dir_path)
+    count_plots_dir_path = os.path.join(plots_dir_path, 'counts')
+    if not os.path.exists(count_plots_dir_path):
+        os.mkdir(count_plots_dir_path)
+    trace_plots_dir_path = os.path.join(plots_dir_path, 'traces')
+    if not os.path.exists(trace_plots_dir_path):
+        os.mkdir(trace_plots_dir_path)
+    txt_file_dir_path = os.path.join(current_experiment_dir_path, 'texts')
+    if not os.path.exists(txt_file_dir_path):
+        os.mkdir(txt_file_dir_path)
+    latent_count_txt_dir_path = os.path.join(txt_file_dir_path, 'latent_counts')
+    if not os.path.exists(latent_count_txt_dir_path):
+        os.mkdir(latent_count_txt_dir_path)
+    count_txt_dir_path = os.path.join(txt_file_dir_path, 'word_counts')
+    if not os.path.exists(count_txt_dir_path):
+        os.mkdir(count_txt_dir_path)
+    trace_txt_dir_path = os.path.join(txt_file_dir_path, 'traces')
+    if not os.path.exists(trace_txt_dir_path):
+        os.mkdir(trace_txt_dir_path)
+    sample_responses_dir_path = os.path.join(txt_file_dir_path, 'sample_responses')
+    if not os.path.exists(sample_responses_dir_path):
+        os.mkdir(sample_responses_dir_path)
     # Create file paths
     if configs.get('log_file', False):
         log_file_path = os.path.join(
@@ -128,7 +173,7 @@ def init_environment(config_file_path: str):
     logging.info(f"Tensor-Board writer created at '{tb_dir_path}'")
     # Dump configs
     copy2(config_file_path, configs_dump_path)
-    writer.add_text('Configs', configs_dump_str)
+    writer.add_text('Configs', MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', configs_dump_str))
     logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
     # Set device
     device = torch.device(configs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
@@ -140,7 +185,8 @@ def init_environment(config_file_path: str):
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
     optimizer_configs = configs['optimizer']
-    scheduler_configs = configs['lr_scheduler']
+    lr_scheduler_configs = configs['lr_scheduler']
+    beta_scheduler_configs = configs['beta_scheduler']
     evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
@@ -173,8 +219,8 @@ def init_model():
     tokenizer.save_pretrained(best_model_checkpoint_path)
     logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
-    model = DLDLMAllHeadsModel.from_pretrained(
-        model_configs['pretrained'], **model_configs.get('additional_kwargs', {})
+    model = DLDLMFullModel.from_pretrained(
+        model_configs['pretrained'], **model_configs.get('kwargs', dict())
     ).extend_from_gpt2_initialization(
         tokenizer
     )
@@ -191,8 +237,12 @@ def init_data_loaders():
     corpus_loaders = {}
     for split in corpus_configs['splits']:
         # Create data set instance
-        data_set: DialogueCorpus = DialogueCorpus(
-            corpus_configs['csv_file_path'], tokenizer, split, **corpus_configs.get('additional_kwargs', {})
+        data_set: PreTrainingCorpus = PreTrainingCorpus(
+            corpus_configs['corpora_dir_path'],
+            tokenizer,
+            split,
+            corpus_configs['cache_dir_path'],
+            **corpus_configs.get('kwargs', dict())
         )
         logging.info(f"{split.capitalize()} data set instantiated")
         # Create data loader instance
@@ -214,65 +264,60 @@ def init_data_loaders():
 
 def init_optimisation_tools():
     # Declare global variables
-    global optimizer_configs, scheduler_configs, mixed_precision, model, corpus_loaders, optimizer, scaler, lr_scheduler
+    global optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, \
+        mixed_precision, optimizer, scaler, lr_scheduler, beta_scheduler, model, corpus_loaders
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
+    # Get total number of training steps
+    steps = len(corpus_loaders[DataSetSplit('train')])
     # Update learning rate scheduler configs with missing info
-    scheduler_configs['lr_steps'] = len(corpus_loaders[DataSetSplit('train')])
+    lr_scheduler_configs['lr_steps'] = steps
     # Create scaler if using mixed precision
     if mixed_precision:
         scaler = GradScaler()
+        logging.info("Gradient scaler for mixed precision instantiated")
     # Create learning rate scheduler instance
-    lr_scheduler = LinearLR(optimizer, **scheduler_configs)
+    lr_scheduler = LinearLR(optimizer, **lr_scheduler_configs)
     logging.info("Learning rate scheduler instantiated")
+    # Create beta scheduler
+    beta_scheduler = BetaCyclicalAnnealer(steps, **beta_scheduler_configs)
+    logging.info("Beta cyclical annealing scheduler instantiated")
 
 
 @autocast(enabled=mixed_precision)
 def process_mini_batch(
         split: str,
-        context_ids: Optional[torch.LongTensor],  # Shape (batch_size, max_context_length)
-        context_attentions: Optional[torch.FloatTensor],  # Shape (batch_size, max_context_length)
-        response_ids: torch.LongTensor,  # Shape (batch_size, max_response_length)
-        response_attentions: torch.FloatTensor,  # Shape (batch_size, max_response_length)
-        distractor_ids: torch.LongTensor,  # Shape (batch_size, max_distractor_response_length)
-        distractor_attentions: torch.FloatTensor,  # Shape (batch_size, max_distractor_response_length)
-        labels: torch.LongTensor,  # Shape (batch_size, max_response_length)
-        rewards: torch.Tensor  # Shape (batch_size, num_rewards)
-) -> Union[Tuple[float, Dict[str, float]], Tuple[List[float], Dict[str, List[float]], List[int], List[int]]]:
+        input_ids: torch.LongTensor,  # Shape (batch_size, )
+        attention_mask: torch.LongTensor,  # Shape (batch_size, length)
+        labels: torch.LongTensor,  # Shape (batch_size, response_length)
+        raw_data: List[Dict]
+) -> Union[Tuple[float, Dict[str, float]], Tuple[List[float], Dict[str, List[float]], List[Dict]]]:
     # Declare global variables
     global corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
     # Compute helper params
-    mini_batch_size: int = len(response_ids)
+    mini_batch_size: int = len(input_ids)
     in_mem: int = corpus_configs['splits'][split]['in_mem']
     # Create accumulators
-    loss: float = 0.0 if model.training else []
-    losses_dict: Dict[str, float] = {}
-    latents: Optional[List[int]] = None if model.training else []
-    policy_predictions: Optional[List[int]] = None if model.training else []
+    loss: Union[float, List[float]] = 0.0 if model.training else list()
+    losses_dict: Dict[str, Union[float, List[float]]] = {
+        key: 0.0 if model.training else list() for key in LOSS_KEYS_MAPPING
+    }
     # Move tensors to device
-    context_ids = context_ids.to(device) if context_ids is not None else None
-    context_attentions = context_attentions.to(device) if context_attentions is not None else None
-    response_ids = response_ids.to(device)
-    response_attentions = response_attentions.to(device)
-    distractor_ids = distractor_ids.to(device) if distractor_ids is not None else None
-    distractor_attentions = distractor_attentions.to(device) if distractor_attentions is not None else None
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
     labels = labels.to(device)
-    rewards = rewards.to(device)
+    # Beta scaling factor
+    beta = beta_scheduler.get_beta()
     # Loop over sub_batches to fit in memory
-    for s_idx in range(0, mini_batch_size, in_mem):
-        # Get final index of current slice
-        e_idx = min(mini_batch_size, s_idx + in_mem)
+    idxs = (idx, min(mini_batch_size, idx + in_mem) for idx in range(0, mini_batch_size, in_mem))
+    for s_idx, e_idx in idxs:
         # Process current elements
         model_outputs = model(
-            input_ids=response_ids[s_idx:e_idx],
-            input_attentions=response_attentions[s_idx:e_idx],
-            context_ids=context_ids[s_idx:e_idx] if context_ids is not None else None,
-            context_attentions=context_attentions[s_idx:e_idx] if context_attentions is not None else None,
+            input_ids=input_ids[s_idx:e_idx],
+            attention_mask=attention_mask[s_idx:e_idx],
             labels=labels[s_idx:e_idx],
-            target_reward=rewards[s_idx:e_idx],
-            distractor_ids=distractor_ids[s_idx:e_idx] if distractor_ids is not None else None,
-            distractor_attentions=distractor_attentions[s_idx:e_idx] if distractor_attentions is not None else None,
+            latent_loss_weight=beta,
             reduction=model.training
         )
         # Compute gradients if model is training
@@ -280,14 +325,14 @@ def process_mini_batch(
             tmp_loss = model_outputs.cost
             tmp_losses_dict = {
                 key: model_outputs.cost_function_output[key].cpu().item()
-                for key in model_outputs.cost_function_output
-                if '_loss' in key or '_div' in key
+                for key in losses_dict
             }
             # Scale loss if using gradient accumulation
             if e_idx - s_idx != mini_batch_size:
-                tmp_loss *= (e_idx - s_idx) / mini_batch_size
+                scaling_factor = (e_idx - s_idx) / mini_batch_size
+                tmp_loss *= scaling_factor
                 for key in tmp_losses_dict:
-                    tmp_losses_dict[key] *= (e_idx - s_idx) / mini_batch_size
+                    tmp_losses_dict[key] *= scaling_factor
             # Compute gradients
             if scaler is not None:
                 scaler.scale(tmp_loss).backward()
@@ -296,16 +341,15 @@ def process_mini_batch(
             tmp_loss = tmp_loss.cpu().item()
             # Update accumulators
             loss += tmp_loss
-            for key in tmp_losses_dict:
-                losses_dict[key] = losses_dict.get(key, 0.0) + tmp_losses_dict[key]
+            for key in losses_dict:
+                losses_dict[key] += tmp_losses_dict[key]
         # Else update accumulators collect predicted latents
         else:
             loss += model_outputs.cost.cpu().tolist()
-            for key in model_outputs.cost_function_output:
-                if '_loss' in key or '_div' in key:
-                    losses_dict[key] = losses_dict.get(key, []) + model_outputs.cost_function_output[key].cpu().tolist()
-            latents += model_outputs.latent.cpu().tolist()
-            policy_predictions += torch.argmax(model_outputs.policy_logits, dim=-1).cpu().tolist()
+            for key in losses_dict:
+                losses_dict[key] += model_outputs.cost_function_output[key].cpu().tolist()
+            for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
+                sample['latent'] = tokenizer.decode(latent)
     # Update weights model if training
     if model.training:
         # Clip gradient norm
@@ -329,49 +373,149 @@ def process_mini_batch(
         return loss, losses_dict
     # Else if evaluating retain additional info
     else:
-        return loss, losses_dict, latents, policy_predictions
+        return loss, losses_dict, raw_data
 
 
 @torch.no_grad()
 def process_evaluation(
-        split: str
-) -> str:
+        split: str,
+        dir_name: str,
+        file_suffix: str,
+        sub_tag: str,
+        step_idx: Optional[int] = None,
+        best_validation_score: Optional[float] = None
+) -> Union[str, Tuple[float, float, float, float]]:
     # Declare global variables
-    global corpora, corpus_loaders, model
+    global corpora, corpus_loaders, model, model_configs, evaluation_configs
+    # Current step
+    step = step_idx + 1 if step_idx is not None else None
     # Get number of elements
     n_elements: int = len(corpora[DataSetSplit(split)])
     # Initialize validation accumulators
-    ppl: Union[float, List[float]] = []
-    latents: List[int] = []
-    policy_predictions: List[int] = []
+    validation_loss: Union[float, List[float]] = list()
+    validation_losses_dict: Dict[str, Union[float, List[float]]] = {key: list() for key in LOSS_KEYS_MAPPING}
+    ppl: Union[float, List[float]] = list()
+    elbo: Union[float, List[float]] = list()
+    kl_divergence: Union[float, List[float]] = list()
+    # Processed samples
+    processed_data: List[Dict] = list()
     # Perform evaluation step
     # Iterate over validation mini batches
     for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit(split)]):
         # Process current mini-batch
-        _, tmp_losses_dict, tmp_latents, tmp_policy_predictions = process_mini_batch(
-            'validation', *mini_batch,
-        )
+        tmp_loss, tmp_losses_dict, processed_mini_batch = process_mini_batch(split, *mini_batch)
         # Update accumulators
-        # PPL
+        # Validation loss
+        validation_loss += tmp_loss
+        for key in validation_losses_dict:
+            validation_losses_dict[key] += tmp_losses_dict[key]
         ppl += [math.exp(nll) for nll in tmp_losses_dict[PPL_NLL_LOSS_KEY]]
-        # Latents
-        latents += tmp_latents
-        policy_predictions += tmp_policy_predictions
+        elbo += tmp_losses_dict[ELBO_OBJECTIVE_KEY]
+        kl_divergence += tmp_losses_dict[KL_DIVERGENCE_LOSS_KEY]
+        processed_data += processed_mini_batch
     # Average score
+    validation_loss = sum(validation_loss) / n_elements
+    validation_losses_dict = {key: sum(validation_losses_dict[key]) / n_elements for key in validation_losses_dict}
     ppl = sum(ppl) / n_elements
-    # Compute classification report
-    latent_report = classification_report(latents, policy_predictions, labels=range(model.config.num_styles))
-    # Final report
-    output_report = f"\t\t\t\t{split.upper()}\n" \
-                    f"\n" \
-                    f"\t\t\t\tLanguage generation\n" \
-                    f"         PPL      {ppl:.2f}\n" \
-                    f"\n" \
-                    f"\t\t\t\tPolicy\n" \
-                    f"{latent_report}\n" \
-                    f"\n"
+    elbo = sum(elbo) / n_elements
+    kl_divergence = sum(kl_divergence) / n_elements
+    # Log losses
+    writer.add_scalar(f'Loss/{sub_tag}', validation_loss, step)
+    writer.add_scalars(
+        f'Metrics/{sub_tag}',
+        {LOSS_KEYS_MAPPING[key]: validation_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
+        step
+    )
+    # Metrics and samples for visualisation
+    latent_counts = get_latents_count(processed_data)
+    word_counts = get_word_counts(processed_data)
+    traces = get_traces(processed_data, **evaluation_configs['traces'])
+    response_samples = get_response_samples(
+        processed_data,
+        model,
+        tokenizer,
+        device,
+        **evaluation_configs['sample_responses'],
+        mixed_precision=mixed_precision,
+        **model_configs['generate_kwargs']
+    )
+    # Log and plot metrics
+    # Latents count
+    log_latents_count(
+        latent_counts,
+        tb_writer=writer,
+        sub_tag=sub_tag,
+        step=step,
+        dest_dir=os.path.join(latent_count_txt_dir_path, dir_name),
+        file_name=f'latent_code_occurrences_{file_suffix}.txt'
+    )
+    writer.add_scalars(
+        f'Latents (Posterior) Distribution/{sub_tag}',
+        {z: count for z, count in latent_counts.items()},
+    )
+    # Word counts
+    log_word_counts(
+        word_counts,
+        tb_writer=writer,
+        sub_tag=sub_tag,
+        step=step,
+        dest_dir=os.path.join(word_count_txt_dir_path, dir_name),
+        file_name=f'latent_word_counts_{file_suffix}.txt'
+    )
+    plot_word_counts(
+        word_counts,
+        tb_writer=writer,
+        sub_tag=sub_tag,
+        step=step,
+        dest_dir=os.path.join(word_count_plots_dir_path, dir_name),
+        file_name=f'action_word_counts_{file_suffix}.pdf'
+    )
+    # Action traces
+    log_traces(
+        traces,
+        sub_tag=sub_tag,
+        step=step,
+        tb_writer=writer,
+        dest_dir=os.path.join(trace_txt_dir_path, dir_name),
+        file_name=f'latent_traces_{file_suffix}.txt'
+    )
+    plot_traces(
+        traces,
+        sub_tag=sub_tag,
+        step=step,
+        tb_writer=writer,
+        dest_dir=os.path.join(trace_plots_dir_path, dir_name),
+        file_name=f'latent_traces_{file_suffix}.pdf'
+    )
+    # Generated samples
+    log_generated_response(
+        response_samples,
+        sub_tag=sub_tag,
+        step=step,
+        tb_writer=writer,
+        dest_dir=os.path.join(sample_responses_txt_dir_path, dir_name),
+        file_name=f'sample_responses_{file_suffix}.txt'
+    )
+    # If this is the standard validation process check for best model
+    if best_validation_score is not None:
+        if validation_losses_dict[VALIDATION_OBJECTIVE_KEY] >= best_validation_score:  # ELBO must increase for an improvement
+            # Save model state dictionary
+            model.save_pretrained(best_model_checkpoint_path)
+            # Update best score
+            best_validation_score = validation_losses_dict[VALIDATION_OBJECTIVE_KEY]
+            # Log update
+            logging.info("Validation objective improved, model checkpoint triggered")
 
-    return output_report
+        return best_validation_score, ppl, elbo, kl_divergence
+    # Else do the final report
+    else:
+        output_report = f"Evaluation (split: {split})\n" \
+                        f"\tPPL: {ppl:.4f}\n" \
+                        f"\tELBO: {elbo:.4f}\n" \
+                        f"\tKL Divergence: {kl_divergence:.4f}\n"
+        writer.add_text(f'Final report/{split}', MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', output_report))
+
+        return output_report
 
 
 def fit_model():
@@ -380,13 +524,13 @@ def fit_model():
     # Initialize values
     # Initialize train accumulators
     # Number of elements
-    n_train_elems: int = len(corpora[DataSetSplit('train')])
+    n_epochs = optimizer_configs['n_epochs']
     n_train_batches: int = len(corpus_loaders[DataSetSplit('train')])
-    n_validation_elements: int = len(corpora[DataSetSplit('validation')])
     # Initialize operation counter
-    global_step_counter: int = 0
+    step_idx: int = 0
+    validation_idx: int = 0
     # Initialize best validation score
-    best_validation_loss: float = float('inf')
+    best_validation_score: float = -float('inf')
     # Set model in training mode
     model.train()
     # Train and validation process
@@ -395,99 +539,54 @@ def fit_model():
     # Log start of training
     logging.info(f"Training started - Current date and time {start_time}")
     # Iterate over epochs
-    for epoch in range(optimizer_configs['n_epochs']):
-        logging.info(f"Epoch {epoch + 1} of {optimizer_configs['n_epochs']} started")
+    for epoch in range(n_epochs):
+        logging.info(f"Epoch {epoch + 1}/{n_epochs} started")
         # Iterate over mini-batches
         for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit('train')]):
+            # Do validation step if required
+            if b_idx % evaluation_configs['validation_period'] == 0:
+                # Log start of validation
+                logging.info(
+                    f"Validation started at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
+                )
+                # Set model in evaluation mode
+                model.eval()
+                logging.info("Model set in evaluation mode")
+                # Do validation step
+                best_validation_score, ppl, elbo, kl_divergence = process_evaluation(
+                    'validation', 'validation', f'validation_{str(validation_idx).zfill(4)}', 'Validation'
+                )
+                # Log end of validation
+                logging.info(
+                    f"Validation completed - PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
+                )
+                # Set model back in training mode
+                model.train()
+                logging.info("Model set in training mode")
+                # Update validation counter
+                validation_idx += 1
             # Process current mini-batch
             mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
             # Log training info (mini-batch level)
             # Tensorboard
-            writer.add_scalar('Training Loss', mini_batch_loss, global_step_counter + 1)
+            writer.add_scalar('Loss/Training', mini_batch_loss, step_idx + 1)
             writer.add_scalars(
-                'Training Losses',
+                'Metrics/Training',
                 {LOSS_KEYS_MAPPING[key]: mini_batch_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
-                global_step_counter + 1
+                step_idx + 1
             )
             # Std output
             logging.info(
-                f"Parameters updated at epoch {epoch + 1}, mini-batch {b_idx + 1} of {n_train_batches} - "
+                f"Parameters updated at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
                 f"Loss {mini_batch_loss:.4f}"
             )
-            # Do validation step if required
-            if (b_idx > 0 and b_idx % evaluation_configs['validation_period'] == 0) or b_idx + 1 == n_train_elems:
-                # Log start of validation
-                logging.info(
-                    f"Validation started at epoch {epoch + 1}, mini-batch {b_idx + 1} of {n_train_batches} - "
-                )
-                model.eval()
-                logging.info("Model set in evaluation mode")
-                with torch.no_grad():
-                    # Initialize validation accumulators
-                    # Loss
-                    validation_loss: Union[float, List[float]] = []
-                    validation_losses_dict: Dict[str, Union[float, List[float]]] = {}
-                    latents: List[int] = []
-                    policy_predictions: List[int] = []
-                    # Perform validation step
-                    # Iterate over validation mini batches
-                    for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit('validation')]):
-                        # Process current mini-batch
-                        tmp_loss, tmp_losses_dict, tmp_latents, tmp_policy_predictions = process_mini_batch(
-                            'validation', *mini_batch,
-                        )
-                        # Update accumulators
-                        # Validation loss
-                        validation_loss += tmp_loss
-                        for key in tmp_losses_dict:
-                            validation_losses_dict[key] = validation_losses_dict.get(key, []) + tmp_losses_dict[key]
-                        # Latents
-                        latents += tmp_latents
-                        policy_predictions += tmp_policy_predictions
-                    # Average scores
-                    validation_loss = sum(validation_loss) / n_validation_elements
-                    for key in validation_losses_dict:
-                        validation_losses_dict[key] = sum(validation_losses_dict[key]) / n_validation_elements
-                    writer.add_scalar('Validation Loss', validation_loss, global_step_counter + 1)
-                    writer.add_scalars(
-                        'Validation Losses',
-                        {LOSS_KEYS_MAPPING[key]: validation_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
-                        global_step_counter + 1
-                    )
-                    writer.add_scalars(
-                        'Posterior Latents Distribution',
-                        {str(z_idx): z_counts for z_idx, z_counts in Counter(latents).items()},
-                        global_step_counter + 1
-                    )
-                    writer.add_scalars(
-                        'Prior Latents Distribution',
-                        {str(z_idx): z_counts for z_idx, z_counts in Counter(policy_predictions).items()},
-                        global_step_counter + 1
-                    )
-                    # Checkpoint best model if loss improves
-                    # Compute loss for validation
-                    tmp_validation_loss = sum(validation_losses_dict.get(key, 0.0) for key in VALIDATION_LOSS_KEYS)
-                    if tmp_validation_loss <= best_validation_loss:
-                        # Save model state dictionary
-                        model.save_pretrained(best_model_checkpoint_path)
-                        # Update best score
-                        best_validation_loss = tmp_validation_loss
-                        # Log update
-                        logging.info("Validation loss improved, model checkpoint triggered")
-                    # Log end of validation
-                    logging.info(
-                        f"Validation completed at epoch {epoch + 1}, mini-batch {b_idx + 1} of {n_train_batches} - "
-                        f"Validation loss {validation_loss:.4f}"
-                    )
-                model.train()
-                logging.info("Model set in training mode")
             # Update global step counter
-            global_step_counter += 1
+            step_idx += 1
         # Checkpoint trained model
         model.save_pretrained(model_checkpoint_path)
         logging.info("Models saved using utilities")
         # Log end of epoch
-        logging.info(f"Epoch {epoch + 1} of {optimizer_configs['n_epochs']} finished")
+        logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
     # Close training
     # Get current date and time
     end_time: datetime = datetime.now()
@@ -513,10 +612,10 @@ def evaluate_model():
     # Log start on validation set
     logging.info(f"Validation set evaluation started")
     # Compute summary report on validation set
-    validation_report: str = process_evaluation('validation')
+    validation_report: str = process_evaluation('validation', 'final_evaluation', 'validation', 'Final evaluation (validation set)')
     # Log end on validation set
     logging.info(f"Validation set evaluation finished")
-    logging.info(validation_report)
+    logging.info('\n' + validation_report)
     # Print test results
     print(validation_report)
     # Log test results in TensorBoard
@@ -524,10 +623,10 @@ def evaluate_model():
     # Log start on test set
     logging.info(f"Test set evaluation started")
     # Compute summary report on test set
-    test_report: str = process_evaluation('test')
+    test_report: str = process_evaluation('test', 'final_evaluation', 'test', 'Final evaluation (test set)')
     # Log end on test set
     logging.info(f"Test set evaluation finished")
-    logging.info(test_report)
+    logging.info('\n' + test_report)
     # Print test results
     print(test_report)
     # Log test results in TensorBoard

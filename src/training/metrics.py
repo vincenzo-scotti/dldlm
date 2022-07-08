@@ -48,12 +48,12 @@ def get_traces(labelled_samples: List[Dict], window_size: Optional[int] = None) 
 
 def get_response_samples(
         labelled_samples: List[Dict],
-        n_samples: Optional[int],
         model: DLDLMFullModel,
         tokenizer: DLDLMTokenizer,
         device,
+        n_samples: Optional[int] = None,
         mixed_precision: bool = True,
-        **generation_kwargs: Dict,
+        **generate_kwargs: Dict,
 ) -> List[Dict]:
     # Sample randomly dialogues if required
     if n_samples is not None and n_samples > 0:
@@ -70,7 +70,7 @@ def get_response_samples(
             for latent in (f'<|latentcode{str(i).zfill(2)}|>' for i in range(model.config.num_styles)):
                 input_ids = tokenizer(prompt + latent, return_tensors='pt').input_ids.to(device)
                 generated_samples[latent] = tokenizer.decode(
-                    model.generate(input_ids, **generation_kwargs)[0, input_ids.size(-1):].cpu(),
+                    model.generate(input_ids, **generate_kwargs)[0, input_ids.size(-1):].cpu(),
                     skip_special_tokens=True
                 )
             sample['generated_responses'] = generated_samples
@@ -79,3 +79,7 @@ def get_response_samples(
         model = model.train()
 
     return labelled_samples
+
+
+def get_latents_count(labelled_samples: List[Dict]):
+    return Counter(sample['latent'] for sample in labelled_samples)

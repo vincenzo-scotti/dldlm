@@ -10,6 +10,8 @@ import torchvision
 import plotly.graph_objects as go
 from torch.utils.tensorboard import SummaryWriter
 
+MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
+
 
 def log_word_counts(
         data: Dict[str, Counter],
@@ -32,7 +34,7 @@ def log_word_counts(
 
     if tb_writer is not None:
         tag = f'Action-word counts/{sub_tag}' if sub_tag is not None else 'Action-word counts'
-        tb_writer.add_text(tag, text, step)
+        tb_writer.add_text(tag, MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', text), step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
             os.mkdir(dest_dir)
@@ -101,7 +103,7 @@ def log_traces(
 
     if tb_writer is not None:
         tag = f'Latent action traces/{sub_tag}' if sub_tag is not None else 'Latent action traces'
-        tb_writer.add_text(tag, text, step)
+        tb_writer.add_text(tag, MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', text), step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
             os.mkdir(dest_dir)
@@ -171,7 +173,7 @@ def log_generated_response(
         file_name: Optional[str] = None
 ):
     def str_sample(**kwargs):
-        return f"Corpus:\n\t{kwargs['corpus']}\n\n" + \
+        return f"Corpus:\n\t{kwargs['corpus']}, Split: {kwargs['split']}, Dialogue idx: {kwargs['conversation_idx']}\n\n" + \
                f"Prompted context:\n\t{repr(kwargs['context'])}\n\n" + \
                "Generated responses:\n\t" + "\n\t".join(f"Latent {group_id_regex.search(latent).group(1)}: {kwargs['generated_responses'][latent]}" for latent in kwargs['generated_responses']) + "\n\n" + \
                f"Original response:\n\t{kwargs['response']}"
@@ -180,7 +182,7 @@ def log_generated_response(
 
     if tb_writer is not None:
         tag = f'Generated responses/{sub_tag}' if sub_tag is not None else 'Generated responses'
-        tb_writer.add_text(tag, text, step)
+        tb_writer.add_text(tag, MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', text), step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
             os.mkdir(dest_dir)
@@ -191,9 +193,9 @@ def log_generated_response(
     return text
 
 
-def log_actions_count(
+def log_latents_count(
         data: Dict[str, int],
-
+        group_id_regex: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>'),
         tb_writer: Optional[SummaryWriter] = None,
         sub_tag: Optional[str] = None,
         step: Optional[int] = None,
@@ -201,12 +203,13 @@ def log_actions_count(
         file_name: Optional[str] = None
 ):
     text = (f"{sub_tag}\n" if sub_tag is not None else str()) + \
-           ("\tActions:\n\t\t" if sub_tag is not None else "Actions:\n\t") + \
-           ("\n\t\t" if sub_tag is not None else "\n\t").join(f"{key}: {data[key]}" for key in data)
+           ("\n\t\t" if sub_tag is not None else "\n\t").join(
+               f"Latent {group_id_regex.search(latent).group(1)}: {count}" for latent, count in data.items()
+           )
 
     if tb_writer is not None:
-        tag = f'Action occurrences/{sub_tag}' if sub_tag is not None else 'Action occurrences'
-        tb_writer.add_text(tag, text, step)
+        tag = f'Latent code occurrences/{sub_tag}' if sub_tag is not None else 'Latent code occurrences'
+        tb_writer.add_text(tag, MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', text), step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
             os.mkdir(dest_dir)
