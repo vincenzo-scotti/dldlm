@@ -585,7 +585,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             context_mask[sep_idxs] = 1
             context_mask = (-context_mask.cumsum(dim=-1) + 1).bool()
             # Vector of 1 and 0 values of the same size of the batch size (represents dropped contexts)
-            dropout_mask = (torch.rand((attention_mask.size(0), 1), device=context_mask.device) > p).long()
+            dropout_mask = (torch.rand((attention_mask.size(0), 1), device=context_mask.device) >= p).long()
             # Zero out attention mask of dropped contexts
             if not inplace:
                 attention_mask = attention_mask.clone()

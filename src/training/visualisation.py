@@ -202,8 +202,8 @@ def log_latents_count(
         dest_dir: Optional[str] = None,
         file_name: Optional[str] = None
 ):
-    text = (f"{sub_tag}\n" if sub_tag is not None else str()) + \
-           ("\n\t\t" if sub_tag is not None else "\n\t").join(
+    text = (f"{sub_tag}\n\t" if sub_tag is not None else str()) + \
+           ("\n\t" if sub_tag is not None else "\n").join(
                f"Latent {group_id_regex.search(latent).group(1)}: {count}" for latent, count in data.items()
            )
 

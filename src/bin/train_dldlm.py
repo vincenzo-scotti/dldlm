@@ -73,9 +73,9 @@ evaluation_configs: Dict
 # Experiment dir path
 latent_count_txt_dir_path: str
 current_experiment_dir_path: str
-word_count_plots_dir_path: str
+count_plots_dir_path: str
 trace_plots_dir_path: str
-word_count_txt_dir_path: str
+count_txt_dir_path: str
 trace_txt_dir_path: str
 sample_responses_txt_dir_path: str
 # Checkpoint paths
@@ -88,8 +88,8 @@ def init_environment(config_file_path: str):
     global random_seed, device, mixed_precision, writer
     global model_configs, tokenizer_configs, corpus_configs, \
         optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
-    global current_experiment_dir_path, latent_count_txt_dir_path, word_count_plots_dir_path, trace_plots_dir_path, \
-        word_count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path, \
+    global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
+        count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path, \
         model_checkpoint_path, best_model_checkpoint_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
@@ -143,9 +143,9 @@ def init_environment(config_file_path: str):
     trace_txt_dir_path = os.path.join(txt_file_dir_path, 'traces')
     if not os.path.exists(trace_txt_dir_path):
         os.mkdir(trace_txt_dir_path)
-    sample_responses_dir_path = os.path.join(txt_file_dir_path, 'sample_responses')
-    if not os.path.exists(sample_responses_dir_path):
-        os.mkdir(sample_responses_dir_path)
+    sample_responses_txt_dir_path = os.path.join(txt_file_dir_path, 'sample_responses')
+    if not os.path.exists(sample_responses_txt_dir_path):
+        os.mkdir(sample_responses_txt_dir_path)
     # Create file paths
     if configs.get('log_file', False):
         log_file_path = os.path.join(
@@ -294,6 +294,8 @@ def process_mini_batch(
 ) -> Union[Tuple[float, Dict[str, float]], Tuple[List[float], Dict[str, List[float]], List[Dict]]]:
     # Declare global variables
     global corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
+    global latent_count_txt_dir_path, current_experiment_dir_path, count_plots_dir_path, \
+        trace_plots_dir_path, count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path
     # Compute helper params
     mini_batch_size: int = len(input_ids)
     in_mem: int = corpus_configs['splits'][split]['in_mem']
@@ -321,9 +323,9 @@ def process_mini_batch(
         )
         # Compute gradients if model is training
         if model.training:
-            tmp_loss = model_outputs.cost
+            tmp_loss = model_outputs.loss
             tmp_losses_dict = {
-                key: model_outputs.cost_function_output[key].cpu().item()
+                key: model_outputs.loss_function_output[key].cpu().item()
                 for key in losses_dict
             }
             # Scale loss if using gradient accumulation
@@ -412,7 +414,6 @@ def process_evaluation(
         elbo += tmp_losses_dict[ELBO_OBJECTIVE_KEY]
         kl_divergence += tmp_losses_dict[KL_DIVERGENCE_LOSS_KEY]
         processed_data += processed_mini_batch
-        break # TODO remove me
     # Average score
     validation_loss = sum(validation_loss) / n_elements
     validation_losses_dict = {key: sum(validation_losses_dict[key]) / n_elements for key in validation_losses_dict}
@@ -459,7 +460,7 @@ def process_evaluation(
         tb_writer=writer,
         sub_tag=sub_tag,
         step=step,
-        dest_dir=os.path.join(word_count_txt_dir_path, dir_name),
+        dest_dir=os.path.join(count_txt_dir_path, dir_name),
         file_name=f'latent_word_counts_{file_suffix}.txt'
     )
     plot_word_counts(
@@ -467,7 +468,7 @@ def process_evaluation(
         tb_writer=writer,
         sub_tag=sub_tag,
         step=step,
-        dest_dir=os.path.join(word_count_plots_dir_path, dir_name),
+        dest_dir=os.path.join(count_plots_dir_path, dir_name),
         file_name=f'action_word_counts_{file_suffix}.pdf'
     )
     # Action traces

@@ -25,6 +25,8 @@ done
 
 # Activate Anaconda environment
 conda activate dldlm
+# Extend Python path
+export PYTHONPATH=$PYTHONPATH:$PWD
 # Train model with different hyper-parameters
 python ./src/bin/train_dldlm.py --config_file_path ./resources/configs/hparam_search/.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out
 python ./src/bin/train_dldlm.py --config_file_path ./resources/configs/hparam_search/.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out
