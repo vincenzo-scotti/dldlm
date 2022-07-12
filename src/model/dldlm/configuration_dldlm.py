@@ -40,6 +40,7 @@ class DLDLMConfig(GPT2Config):
             tf_loss: bool = True,
             lm_loss_weight: float = 1.0,
             latent_loss_weight: float = 1.0,
+            latent_loss_threshold: Optional[float] = None,
             tf_loss_weight: float = 1.0,
 
             **kwargs,
@@ -69,6 +70,7 @@ class DLDLMConfig(GPT2Config):
         self.tf_loss: bool = tf_loss
         self.lm_loss_weight: float = lm_loss_weight
         self.latent_loss_weight: float = latent_loss_weight
+        self.latent_loss_threshold: Optional[float] = latent_loss_threshold
         self.tf_loss_weight: float = tf_loss_weight
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters

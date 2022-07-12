@@ -269,7 +269,7 @@ def init_optimisation_tools():
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
     # Get total number of training steps
-    steps = len(corpus_loaders[DataSetSplit('train')])
+    steps = (len(corpus_loaders[DataSetSplit('train')]) * optimizer_configs['n_epochs']) + 1
     # Update learning rate scheduler configs with missing info
     lr_scheduler_configs['lr_steps'] = steps
     # Create scaler if using mixed precision
@@ -309,7 +309,7 @@ def process_mini_batch(
     attention_mask = attention_mask.to(device)
     labels = labels.to(device)
     # Beta scaling factor
-    beta = beta_scheduler.get_beta()
+    beta = beta_scheduler.get_beta() if model.training else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
     for s_idx, e_idx in idxs:
@@ -453,6 +453,7 @@ def process_evaluation(
     writer.add_scalars(
         f'Latents (Posterior) Distribution/{sub_tag}',
         {z: count for z, count in latent_counts.items()},
+        step
     )
     # Word counts
     log_word_counts(
@@ -527,7 +528,7 @@ def fit_model():
     def evaluation_step() -> float:
         # Log start of validation
         logging.info(
-            f"Validation started at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
+            f"Validation started at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches}"
         )
         # Set model in evaluation mode
         model.eval()

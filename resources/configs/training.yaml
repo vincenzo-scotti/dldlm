@@ -1,5 +1,5 @@
-experiment_series: DLDLM_pretraining # DLDLM_hparam_search
-experiment_id: dldlm_distilled
+experiment_series: DLDLM_hparam_search
+experiment_id: dldlm_distilled_cdrop_tf_bcyclic
 experiments_directory_path: ./experiments/
 
 random_seed: 2307
@@ -9,10 +9,8 @@ dldlm:
   model:
     pretrained: &pretrained distilgpt2
     kwargs:
-      n_styles: &n_styles 16
+      n_styles: &n_styles 8
       tf_size: 50256
-      # context_pdrop: 0.0
-      # tf_loss: false
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -26,17 +24,17 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 6.25e-5
-  n_epochs: 1 # 20
+    lr: &lr 1.e-6
+  n_epochs: &n_epochs 10
   max_gradient_norm: 1.0
 
 lr_scheduler:
   lr_start: *lr
-  lr_stop: 0.0
-  warmup: 0.002
-
-beta_scheduler: # {}
+  lr_stop: *lr
   warmup: 0
+
+beta_scheduler:
+  cycles: *n_epochs
 
 evaluation:
   validation_period: 2048
@@ -58,14 +56,14 @@ data:
       - personachat
       - wizard_of_wikipedia
     max_context_length: 256
-
+    max_response_length: 128
   splits:
     train:
       mini_batch_size: 64
       in_mem: 8
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 16
+      mini_batch_size: &eval_mini_batch_size 64
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:

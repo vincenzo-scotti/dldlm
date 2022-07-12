@@ -110,7 +110,7 @@ class BetaCyclicalAnnealer:
         current_beta_idx = self.current_beta_idx
         self.current_beta_idx += 1
 
-        if current_beta_idx >= self.steps:
+        if current_beta_idx > self.steps:
             raise IndexError()
 
         try:

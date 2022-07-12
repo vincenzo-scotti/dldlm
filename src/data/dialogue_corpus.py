@@ -32,11 +32,14 @@ class PreTrainingCorpus(Dataset):
             *args,
             corpus_list: Optional[List[str]] = None,
             reload_cache: bool = False,
+            max_response_length: Optional[int] = None,
             **kwargs
     ):
         super(PreTrainingCorpus, self).__init__()
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
+        # Max response length
+        self.max_response_length: Optional[int] = max_response_length
         # Data split identifier
         self.data_set_split: DataSetSplit = DataSetSplit(data_set_split)
         # Path to corpus data frame
@@ -108,15 +111,27 @@ class PreTrainingCorpus(Dataset):
             return_tensors='pt'
         )
         # Prepare inputs
-        input_ids = torch.hstack([context_encodings.input_ids, response_encodings.input_ids])
-        attention_mask = torch.hstack([context_encodings.attention_mask, response_encodings.attention_mask])
+        if self.max_response_length is not None:
+            input_ids = torch.hstack(
+                [context_encodings.input_ids, response_encodings.input_ids[:self.max_response_length]]
+            )
+            attention_mask = torch.hstack(
+                [context_encodings.attention_mask, response_encodings.attention_mask[:self.max_response_length]]
+            )
+        else:
+            input_ids = torch.hstack([context_encodings.input_ids, response_encodings.input_ids])
+            attention_mask = torch.hstack([context_encodings.attention_mask, response_encodings.attention_mask])
         # Prepare target labels
         label_encodings = self.tokenizer(
             [self.tokenizer.eos_token + sample['response'] + self.tokenizer.eos_token for sample in mini_batch],
             padding=True,
             return_tensors='pt'
         )
-        labels = label_encodings.input_ids
-        labels[~label_encodings.attention_mask.bool()] = IGNORE_INDEX
+        if self.max_response_length is not None:
+            labels = label_encodings.input_ids[:self.max_response_length]
+            labels[~label_encodings.attention_mask[:self.max_response_length].bool()] = IGNORE_INDEX
+        else:
+            labels = label_encodings.input_ids
+            labels[~label_encodings.attention_mask.bool()] = IGNORE_INDEX
 
         return input_ids, attention_mask, labels, mini_batch
