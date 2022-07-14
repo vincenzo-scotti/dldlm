@@ -41,6 +41,7 @@ class DLDLMLossFunctionOutput(ModelOutput):
     
     lm_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_kl_div_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    latent_kl_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     elbo: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -149,11 +150,18 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
                     reduction='none',
                     log_target=True
+                )
+                # Apply thresholding if required
+                latent_kl_threshold_loss: Optional[torch.Tensor] = torch.max(
+                    latent_kl_div_loss, torch.full_like(latent_kl_div_loss, self.config.latent_loss_threshold)
                 ).sum(-1)
+                # Sum over last axis
+                latent_kl_div_loss = latent_kl_div_loss.sum(-1)
                 if reduction:
                     latent_kl_div_loss = latent_kl_div_loss.mean()
+                    latent_kl_threshold_loss = latent_kl_threshold_loss.mean()
             else:
-                latent_kl_div_loss = None
+                latent_kl_div_loss = latent_kl_threshold_loss = None
             # Negative Log-Likelihood
             if latent is not None:
                 latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
@@ -165,28 +173,36 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 if kwargs.get('detach_posterior', self.config.detach_posterior):
                     loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_nll_loss
                 else:
-                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
+                    if self.config.latent_loss_threshold > -float('inf'):
+                        loss += latent_kl_threshold_loss
+                    else:
+                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
         else:
-            latent_kl_div_loss = latent_nll_loss = None
+            latent_kl_div_loss = latent_kl_threshold_loss = latent_nll_loss = None
         # ELBO
         if lm_loss is not None and latent_kl_div_loss is not None:
             elbo: Optional[torch.Tensor] = -(lm_loss + latent_kl_div_loss)
         else:
             elbo = None
-        # Prior entropy (not actual loss but metric)
+        # Prior entropy
         if prior_logits is not None:
             prior_dist = torch.softmax(prior_logits, dim=-1)
             prior_dist_entropy = -(prior_dist * (prior_dist + 1e-12).log2()).sum(dim=-1)
             if reduction:
                 prior_dist_entropy = prior_dist_entropy.mean()
+            if kwargs.get('prior_loss', self.config.prior_loss):
+                # This goes in the other direction, I want it to be high to have a maximum entropy estimator
+                loss -= kwargs.get('prior_loss_weight', self.config.prior_loss_weight) * prior_dist_entropy
         else:
             prior_dist_entropy = None
-        # Posterior entropy (not actual loss but metric)
+        # Posterior entropy
         if posterior_logits is not None:
             posterior_dist = torch.softmax(posterior_logits, dim=-1)
             posterior_dist_entropy = -(posterior_dist * (posterior_dist + 1e-12).log2()).sum(dim=-1)
             if reduction:
                 posterior_dist_entropy = posterior_dist_entropy.mean()
+            if kwargs.get('posterior_loss', self.config.posterior_loss):
+                loss += kwargs.get('posterior_loss_weight', self.config.posterior_loss_weight) * posterior_dist_entropy
         else:
             posterior_dist_entropy = None
         # tf prediction loss
@@ -212,6 +228,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             loss=loss,
             lm_loss=lm_loss,
             latent_kl_div_loss=latent_kl_div_loss,
+            latent_kl_threshold_loss=latent_kl_threshold_loss,
             latent_nll_loss=latent_nll_loss,
             elbo=elbo,
             prior_dist_entropy=prior_dist_entropy,
@@ -281,6 +298,14 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             output_hidden_states=None
     ):
         # Encoding step
+        # Apply corruption to input mask
+        attention_mask = self._input_corruption(
+            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            prior_token_id_idxs,
+            posterior_token_id_idxs,
+            p=self.config.corruption_rate,
+            training=self.training
+        )
         # Dialogue analysis step
         analysis_hidden_outputs = self._compute_hidden_transformation(
             input_ids=input_ids,
@@ -395,7 +420,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 self.transformer.wte.weight,
                 F.gumbel_softmax(
                     posterior_logits if posterior_logits is not None else prior_logits,
-                    tau=self.config.gumbell_tau
+                    hard=True
                 )
             ).unsqueeze(1)
             # Decode latent embedding
@@ -569,6 +594,32 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 use_cache=use_cache,
                 **kwargs
             )
+
+    @staticmethod
+    def _input_corruption(
+            attention_mask: torch.LongTensor,
+            prior_idxs: Tuple[torch.Tensor],
+            posterior_idxs: Tuple[torch.Tensor],
+            p: float = 0.5,
+            training: bool = True,
+            inplace: bool = False
+    ) -> torch.LongTensor:
+        # Check if it's training or not
+        if training and p > 0.0:
+            # Create corruption mask
+            corrupted_attention_mask = torch.zeros_like(attention_mask)
+            corrupted_attention_mask[attention_mask.bool()] = (
+                    torch.rand_like(attention_mask[attention_mask.bool()].float()) >= p
+            ).long()
+            # Avoid corrupting prior and posterior tokens
+            corrupted_attention_mask[prior_idxs] = 1
+            corrupted_attention_mask[posterior_idxs] = 1
+            # Zero out attention mask of dropped contexts
+            if not inplace:
+                attention_mask = attention_mask.clone()
+            attention_mask *= corrupted_attention_mask
+        # Return attention mask
+        return attention_mask
 
     @staticmethod
     def _context_dropout(

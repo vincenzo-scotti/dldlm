@@ -23,8 +23,8 @@ class DLDLMConfig(GPT2Config):
             tf_size: Optional[int] = None,
             init_tf_head: bool = True,
 
-            gumbell_tau: float = 0.67,
             context_pdrop: float = 0.5,
+            corruption_rate: float = 0.2,
             detach_posterior: bool = False,
             do_sample_latent: bool = False,
 
@@ -37,10 +37,14 @@ class DLDLMConfig(GPT2Config):
             reduction: bool = True,
             lm_loss: bool = True,
             latent_loss: bool = True,
+            prior_loss: bool = False,
+            posterior_loss: bool = False,
             tf_loss: bool = True,
             lm_loss_weight: float = 1.0,
             latent_loss_weight: float = 1.0,
-            latent_loss_threshold: Optional[float] = None,
+            latent_loss_threshold: float = -float('inf'),
+            prior_loss_weight: float = 1.0,
+            posterior_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
 
             **kwargs,
@@ -50,10 +54,8 @@ class DLDLMConfig(GPT2Config):
         self.tf_size: Optional[int] = tf_size
         self.init_tf_head: bool = init_tf_head
         # Latent analysis hyper-parameters and configs
-        assert gumbell_tau >= 0.0, f"The Gumbell-Softmax temperature must be a non-negative value in R, " \
-                                   f"provided value was {gumbell_tau}"
-        self.gumbell_tau: float = gumbell_tau
         self.context_pdrop: float = context_pdrop
+        self.corruption_rate: float = corruption_rate
         self.detach_posterior: bool = detach_posterior
         self.do_sample_latent = do_sample_latent
         # Special tokens
@@ -67,11 +69,15 @@ class DLDLMConfig(GPT2Config):
         self.reduction: bool = reduction
         self.lm_loss: bool = lm_loss
         self.latent_loss: bool = latent_loss
+        self.prior_loss: bool = prior_loss
+        self.posterior_loss: bool = posterior_loss
         self.tf_loss: bool = tf_loss
         self.lm_loss_weight: float = lm_loss_weight
         self.latent_loss_weight: float = latent_loss_weight
-        self.latent_loss_threshold: Optional[float] = latent_loss_threshold
+        self.latent_loss_threshold: float = latent_loss_threshold
         self.tf_loss_weight: float = tf_loss_weight
+        self.prior_loss_weight: float = prior_loss_weight
+        self.posterior_loss_weight: float = posterior_loss_weight
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters
 

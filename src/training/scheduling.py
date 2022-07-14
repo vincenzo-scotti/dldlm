@@ -100,10 +100,11 @@ class BetaCyclicalAnnealer:
         self.beta_max: float = beta_max
         self.steps: int = steps
         self.cycles: int = cycles
-        self.cycle_len: int = math.ceil(self.steps / self.cycles)
-        self.warmup: int = warmup if warmup > 1 else math.ceil(warmup * self.cycle_len)
-        if warmup > 0:  # If there is no warmup the schedule is constant
-            self.m: float = (self.beta_max - self.beta_min) / self.warmup
+        if cycles > 0:  # If there are no cycles the schedule is constant
+            self.cycle_len: int = math.ceil(self.steps / self.cycles)
+            self.warmup: int = warmup if warmup > 1 else math.ceil(warmup * self.cycle_len)
+            if warmup > 0:  # If there is no warmup or there are no cycles the schedule is constant
+                self.m: float = (self.beta_max - self.beta_min) / self.warmup
         self.current_beta_idx: int = 0
 
     def get_beta(self) -> float:

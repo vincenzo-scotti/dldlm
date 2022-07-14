@@ -35,6 +35,7 @@ KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
 LOSS_KEYS_MAPPING = {
     'lm_loss': 'Language Modelling',
     'latent_kl_div_loss': 'Latent KL Divergence',
+    'latent_kl_threshold_loss': 'Latent KL Divergence with threshold',
     'latent_nll_loss': 'Latent Negative Log-Likelihood',
     'elbo': 'Evidence Lower BOund',
     'prior_dist_entropy': 'Prior Latent Distribution Entropy',
@@ -263,8 +264,8 @@ def init_data_loaders():
 
 def init_optimisation_tools():
     # Declare global variables
-    global optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, \
-        mixed_precision, optimizer, scaler, lr_scheduler, beta_scheduler, model, corpus_loaders
+    global optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, beta_scheduler, \
+        mixed_precision, optimizer, scaler, lr_scheduler, model, corpus_loaders
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")

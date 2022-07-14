@@ -1,5 +1,5 @@
-experiment_series: DLDLM_hparam_search
-experiment_id: dldlm_distilled_cdrop_tf_bcyclic
+experiment_series: DLDLM_pretraining
+experiment_id: dldlm_distilled
 experiments_directory_path: ./experiments/
 
 random_seed: 2307
@@ -11,6 +11,12 @@ dldlm:
     kwargs:
       n_styles: &n_styles 8
       tf_size: 50256
+      # context_pdrop: 0.0
+      # corruption_rate: 0.0
+      # tf_loss: false
+      # prior_loss: true
+      # posterior_loss: true
+      latent_loss_threshold: 2.0
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -24,17 +30,18 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 1.e-6
-  n_epochs: &n_epochs 10
+    lr: &lr 6.25e-5
+  n_epochs: 15
   max_gradient_norm: 1.0
 
 lr_scheduler:
   lr_start: *lr
-  lr_stop: *lr
-  warmup: 0
+  lr_stop: 0.0
+  warmup: 0.002
 
 beta_scheduler:
-  cycles: *n_epochs
+  cycles: 0
+  warmup: 0
 
 evaluation:
   validation_period: 2048
@@ -44,7 +51,7 @@ evaluation:
     traces:
       window_size: 4
     sample_responses:
-      n_samples: 2
+      n_samples: 5
 
 data:
   corpora_dir_path: ./resources/data/raw/
@@ -63,7 +70,7 @@ data:
       in_mem: 8
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 64
+      mini_batch_size: &eval_mini_batch_size 64  # 32
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:
