@@ -27,6 +27,7 @@ class DLDLMConfig(GPT2Config):
             corruption_rate: float = 0.2,
             detach_posterior: bool = False,
             do_sample_latent: bool = False,
+            do_gibbs_sampling: bool = False,
 
             unknown_token_id: Optional[int] = None,
             mask_token_id: Optional[int] = None,
@@ -37,12 +38,14 @@ class DLDLMConfig(GPT2Config):
             reduction: bool = True,
             lm_loss: bool = True,
             latent_loss: bool = True,
+            gibbs_sampling_loss: bool = False,
             prior_loss: bool = False,
             posterior_loss: bool = False,
             tf_loss: bool = True,
             lm_loss_weight: float = 1.0,
             latent_loss_weight: float = 1.0,
             latent_loss_threshold: float = -float('inf'),
+            gibbs_sampling_loss_weight: float = 1.0,
             prior_loss_weight: float = 1.0,
             posterior_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
@@ -57,7 +60,8 @@ class DLDLMConfig(GPT2Config):
         self.context_pdrop: float = context_pdrop
         self.corruption_rate: float = corruption_rate
         self.detach_posterior: bool = detach_posterior
-        self.do_sample_latent = do_sample_latent
+        self.do_sample_latent: bool = do_sample_latent
+        self.do_gibbs_sampling: bool = do_gibbs_sampling
         # Special tokens
         self.unknown_token_id: Optional[int] = unknown_token_id
         self.mask_token_id: Optional[int] = mask_token_id
@@ -69,12 +73,14 @@ class DLDLMConfig(GPT2Config):
         self.reduction: bool = reduction
         self.lm_loss: bool = lm_loss
         self.latent_loss: bool = latent_loss
+        self.gibbs_sampling_loss: bool = gibbs_sampling_loss and self.do_gibbs_sampling
         self.prior_loss: bool = prior_loss
         self.posterior_loss: bool = posterior_loss
         self.tf_loss: bool = tf_loss
         self.lm_loss_weight: float = lm_loss_weight
         self.latent_loss_weight: float = latent_loss_weight
         self.latent_loss_threshold: float = latent_loss_threshold
+        self.gibbs_sampling_loss_weight: float = gibbs_sampling_loss_weight
         self.tf_loss_weight: float = tf_loss_weight
         self.prior_loss_weight: float = prior_loss_weight
         self.posterior_loss_weight: float = posterior_loss_weight

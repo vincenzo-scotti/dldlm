@@ -11,7 +11,7 @@ from typing import Optional, Union, Tuple, List, Dict, Pattern
 import random
 import math
 import numpy as np
-from training import get_word_counts, get_traces, get_latents_count, get_response_samples
+from training import get_latent_word_counts, get_traces, get_latents_count, get_response_samples
 from training import log_word_counts, log_traces, log_latents_count, log_generated_response
 from training import plot_word_counts, plot_traces
 import torch
@@ -36,7 +36,8 @@ LOSS_KEYS_MAPPING = {
     'lm_loss': 'Language Modelling',
     'latent_kl_div_loss': 'Latent KL Divergence',
     'latent_kl_threshold_loss': 'Latent KL Divergence with threshold',
-    'latent_nll_loss': 'Latent Negative Log-Likelihood',
+    'prior_latent_nll_loss': 'Latent Prior Negative Log-Likelihood',
+    'posterior_latent_nll_loss': 'Latent Posterior Negative Log-Likelihood',
     'elbo': 'Evidence Lower BOund',
     'prior_dist_entropy': 'Prior Latent Distribution Entropy',
     'posterior_dist_entropy': 'Posterior Latent Distribution Entropy',
@@ -430,7 +431,7 @@ def process_evaluation(
     )
     # Metrics and samples for visualisation
     latent_counts = get_latents_count(processed_data)
-    word_counts = get_word_counts(processed_data)
+    word_counts = get_latent_word_counts(processed_data)
     traces = get_traces(processed_data, **evaluation_configs['metrics']['traces'])
     response_samples = get_response_samples(
         processed_data,

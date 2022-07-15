@@ -43,7 +43,8 @@ class DLDLMLossFunctionOutput(ModelOutput):
     latent_kl_div_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_kl_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     elbo: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
-    latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    prior_latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    posterior_latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     posterior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     tf_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -162,23 +163,33 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_kl_threshold_loss = latent_kl_threshold_loss.mean()
             else:
                 latent_kl_div_loss = latent_kl_threshold_loss = None
-            # Negative Log-Likelihood
+            # Posterior negative Log-Likelihood
             if latent is not None:
-                latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
+                prior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
                 if reduction:
-                    latent_nll_loss = latent_nll_loss.mean()
+                    prior_latent_nll_loss = prior_latent_nll_loss.mean()
             else:
-                latent_nll_loss = None
+                prior_latent_nll_loss = None
+            if posterior_logits is not None and latent is not None:
+                posterior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(
+                    posterior_logits, latent, reduction='none'
+                )
+                if reduction:
+                    posterior_latent_nll_loss = posterior_latent_nll_loss.mean()
+            else:
+                posterior_latent_nll_loss = None
             if kwargs.get('latent_loss', self.config.latent_loss):
                 if kwargs.get('detach_posterior', self.config.detach_posterior):
-                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_nll_loss
+                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * prior_latent_nll_loss
                 else:
                     if self.config.latent_loss_threshold > -float('inf'):
                         loss += latent_kl_threshold_loss
                     else:
                         loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
+            if kwargs.get('gibbs_sampling_loss', self.config.gibbs_sampling_loss):
+                loss += kwargs.get('gibbs_sampling_loss_weight', self.config.gibbs_sampling_loss_weight) * posterior_latent_nll_loss
         else:
-            latent_kl_div_loss = latent_kl_threshold_loss = latent_nll_loss = None
+            latent_kl_div_loss = latent_kl_threshold_loss = prior_latent_nll_loss = posterior_latent_nll_loss = None
         # ELBO
         if lm_loss is not None and latent_kl_div_loss is not None:
             elbo: Optional[torch.Tensor] = -(lm_loss + latent_kl_div_loss)
@@ -229,7 +240,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             lm_loss=lm_loss,
             latent_kl_div_loss=latent_kl_div_loss,
             latent_kl_threshold_loss=latent_kl_threshold_loss,
-            latent_nll_loss=latent_nll_loss,
+            prior_latent_nll_loss=prior_latent_nll_loss,
+            posterior_latent_nll_loss=posterior_latent_nll_loss,
             elbo=elbo,
             prior_dist_entropy=prior_dist_entropy,
             posterior_dist_entropy=posterior_dist_entropy,
@@ -415,14 +427,26 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # If model is training process latent embedding and then the rest of the sequence
         if self.training:
             # Compute latent embedding
-            latent_embeds = torch.einsum(
-                'vh, bv -> bh',
-                self.transformer.wte.weight,
-                F.gumbel_softmax(
+            # If doing gibbs sampling for fine tuning sample from original distribution
+            if kwargs.get('do_gibbs_sampling', self.config.do_gibbs_sampling):
+                p_soft = torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1)
+                p_hard = torch.zeros_like(
                     posterior_logits if posterior_logits is not None else prior_logits,
-                    hard=True
-                )
-            ).unsqueeze(1)
+                    memory_format=torch.legacy_contiguous_format
+                ).scatter_(-1, latent_ids, 1.0)
+                latent_embeds = torch.einsum(
+                    'vh, bv -> bh', self.transformer.wte.weight, p_hard - p_soft.detach() + p_soft
+                ).unsqueeze(1)
+            # Else if doing pretraining sample from gumbel distribution
+            else:
+                latent_embeds = torch.einsum(
+                    'vh, bv -> bh',
+                    self.transformer.wte.weight,
+                    F.gumbel_softmax(
+                        posterior_logits if posterior_logits is not None else prior_logits,
+                        hard=True
+                    )
+                ).unsqueeze(1)
             # Decode latent embedding
             latent_hidden_outputs = self._compute_hidden_transformation(
                 input_embeds=latent_embeds,

@@ -1,34 +1,25 @@
 import random
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict
 from collections import Counter
-import spacy
-import nltk
 import torch
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from itertools import groupby
 from model import DLDLMFullModel, DLDLMTokenizer
 
 
-nltk.download('stopwords')
-nltk.download('punkt')
-STOP_WORDS: Set[str] = set(stopwords.words('english')) | spacy.load('en_core_web_sm').Defaults.stop_words
-PUNCTUATION: Set[str] = set("[!\"#$%&()*+,-./:;<=>?@[]\\^`{|}~_']") | {'...', '``', '\'\'', '--'}
+def groupby(data, key) -> Dict:
+    groups: Dict = dict()
+    for elem in data:
+        try:
+            groups[key(elem)].append(elem)
+        except KeyError:
+            groups[key(elem)] = [elem]
+    return groups
 
 
-def get_word_counts(labelled_samples: List[Dict]) -> Dict[str, Counter]:
+def get_latent_word_counts(labelled_samples: List[Dict]) -> Dict[str, Counter]:
     # Group response by latent code and compute word counts
     word_counts = {
-        label: sum(
-            (
-                Counter(
-                    w.lower() for w in word_tokenize(sample['response']) if w.lower() not in STOP_WORDS | PUNCTUATION
-                )
-                for sample in samples
-            ),
-            Counter()
-        )
-        for label, samples in groupby(labelled_samples, lambda x: x['latent'])
+        label: sum((sample['word_counts']for sample in samples), Counter())
+        for label, samples in groupby(labelled_samples, lambda x: x['latent']).items()  # FIXME
     }
 
     return word_counts
@@ -38,7 +29,9 @@ def get_traces(labelled_samples: List[Dict], window_size: Optional[int] = None) 
     # Get labels from samples
     traces = [
         [sample['latent'] for sample in sorted(samples, key=lambda x: x['turn_idx'])]
-        for conv_id, samples in groupby(labelled_samples, lambda x: (x['split'], x['corpus'], x['conversation_idx']))
+        for conv_id, samples in groupby(
+            labelled_samples, lambda x: (x['split'], x['corpus'], x['conversation_idx'])
+        ).items()
     ]
     # Apply windowing if necessary
     if window_size is not None:

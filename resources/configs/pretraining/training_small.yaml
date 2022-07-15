@@ -1,5 +1,5 @@
 experiment_series: DLDLM_pretraining
-experiment_id: dldlm_distilled
+experiment_id: dldlm_small
 experiments_directory_path: ./experiments/
 
 random_seed: 2307
@@ -7,15 +7,10 @@ mixed_precision: true
 
 dldlm:
   model:
-    pretrained: &pretrained distilgpt2
+    pretrained: &pretrained gpt2
     kwargs:
       n_styles: &n_styles 8
       tf_size: 50256
-      # context_pdrop: 0.0
-      # corruption_rate: 0.0
-      # tf_loss: false
-      # prior_loss: true
-      # posterior_loss: true
       do_sample_latent: true
       lm_loss_weight: 0.5
       latent_loss_threshold: 2.0
@@ -70,10 +65,10 @@ data:
   splits:
     train:
       mini_batch_size: 64
-      in_mem: 8
+      in_mem: 4
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 64
+      mini_batch_size: &eval_mini_batch_size 32
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:

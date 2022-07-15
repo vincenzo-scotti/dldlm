@@ -3,6 +3,13 @@ import os
 import bz2
 import pickle
 
+from collections import Counter
+
+import spacy
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
 import torch
 from torch.utils.data import Dataset
 from .utils import DataSetSplit, IGNORE_INDEX
@@ -10,7 +17,7 @@ from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWiki
 
 from model import DLDLMTokenizer
 
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Set
 
 CORPORA: Dict = {
     DailyDialog.IDENTIFIER: DailyDialog,
@@ -18,6 +25,17 @@ CORPORA: Dict = {
     PersonaChat.IDENTIFIER: PersonaChat,
     WizardOfWikipedia.IDENTIFIER: WizardOfWikipedia,
 }
+
+nltk.download('stopwords')
+nltk.download('punkt')
+STOP_WORDS: Set[str] = set(stopwords.words('english')) | spacy.load('en_core_web_sm').Defaults.stop_words
+PUNCTUATION: Set[str] = set("[!\"#$%&()*+,-./:;<=>?@[]\\^`{|}~_']") | {'...', '``', '\'\'', '--'}
+
+
+def get_word_counts(s: str) -> Counter:
+    return Counter(
+        w.lower() for w in word_tokenize(s) if w.lower() not in STOP_WORDS | PUNCTUATION
+    )
 
 
 # TODO move here context cutting, it shouldn't be part of the corpora loaders
@@ -33,6 +51,7 @@ class PreTrainingCorpus(Dataset):
             corpus_list: Optional[List[str]] = None,
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
+            count_word_tokens: bool = False,
             **kwargs
     ):
         super(PreTrainingCorpus, self).__init__()
@@ -63,6 +82,8 @@ class PreTrainingCorpus(Dataset):
             # Else simply save the provided list
             else:
                 self.corpus_list: List[str] = corpus_list
+            # Word count flag
+            self.count_word_tokens: bool = count_word_tokens
             # Load all corpora and generate cache
             self._generate_data_cache(*args, **kwargs)
         # Else simply load the cache
@@ -90,6 +111,10 @@ class PreTrainingCorpus(Dataset):
         ]
         # and gather the data
         self.data = [corpus[idx] for corpus in corpora for idx in range(len(corpus))]
+        # Count word tokens in needed
+        if self.count_word_tokens:
+            for sample in self.data:
+                sample['word_counts'] = get_word_counts(sample['response'])
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
             pickle.dump(self.data, f)

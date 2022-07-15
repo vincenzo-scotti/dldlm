@@ -1,5 +1,5 @@
-experiment_series: DLDLM_pretraining
-experiment_id: dldlm_distilled
+experiment_series: DLDLM_ablations
+experiment_id: dldlm_distilled_threshold_cdrop_tf
 experiments_directory_path: ./experiments/
 
 random_seed: 2307
@@ -11,13 +11,7 @@ dldlm:
     kwargs:
       n_styles: &n_styles 8
       tf_size: 50256
-      # context_pdrop: 0.0
-      # corruption_rate: 0.0
-      # tf_loss: false
-      # prior_loss: true
-      # posterior_loss: true
-      do_sample_latent: true
-      lm_loss_weight: 0.5
+      corruption_rate: 0.0
       latent_loss_threshold: 2.0
     generate_kwargs:
       max_length: 384
@@ -42,8 +36,8 @@ lr_scheduler:
   warmup: 0
 
 beta_scheduler:
-  cycles: 0
   warmup: 0
+  cycles: 0
 
 evaluation:
   validation_period: 2048
