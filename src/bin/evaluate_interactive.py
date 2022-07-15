@@ -22,7 +22,7 @@ device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cp
 mixed_precision: bool = True
 # Model
 generation_kwargs: Dict = dict()
-max_context_len: int = 256
+max_context_len: Optional[int]
 pretrained_model: str
 model: DLDLMFullModel
 pretrained_tokenizer: str
@@ -33,12 +33,10 @@ current_experiment_dir_path: Optional[str] = None
 # TODO check out for beam sampling
 
 
-def init_environment(pretrained_model_id: Optional[str], config_file_path: Optional[str]):
+def init_environment(config_file_path: Optional[str]):
     # Declare global variables
     global random_seed, device, mixed_precision, pretrained_tokenizer, \
         pretrained_model, max_context_len, generation_kwargs, current_experiment_dir_path
-    assert pretrained_model_id is not None or config_file_path is not None, \
-        "You must specify at least one argument between 'pretrained_model' and 'config_file_path'"
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
     # Read YAML file
@@ -88,7 +86,7 @@ def init_environment(pretrained_model_id: Optional[str], config_file_path: Optio
     logging.info(f"Mixed precision set to '{mixed_precision}'")
     # Load remaining configs
     pretrained_model = configs['dldlm']['model']['pretrained']
-    max_context_len = configs['dldlm']['model']['max_context_len']
+    max_context_len = configs['dldlm']['model'].get('max_context_len')
     generation_kwargs = configs['dldlm']['model']['generate_kwargs']
     pretrained_tokenizer = configs['dldlm']['tokeniser']['pretrained']
     logging.info("Initialisation completed")
@@ -123,16 +121,16 @@ def append_turn_to_conversation_file(text: str):
             f.write(text + '\n')
 
 
-def get_context_len(context):
+def get_context(context):
     # Declare global variables
     global tokenizer, max_context_len
-    turn_lengths = [len(tokenizer(turn).input_ids) - 2 for turn in context]
-    context_len = sum(turn_lengths)
-    context_turns = len(context)
-    while context_len > max_context_len:
-        context_len -= turn_lengths.pop(0)
-        context_turns -= 1
-    return context_turns
+    # Get context string
+    context_str = '\n'.join(context)
+    # Possibly cut excess
+    if max_context_len is not None:
+        context_str = tokenizer.decode(tokenizer().input_ids[-max_context_len:])
+    # Return context string
+    return context_str + '<|prior|>'
 
 
 @torch.no_grad()
@@ -142,7 +140,7 @@ def main(args: Namespace):
     global device, tokenizer, model, generation_kwargs
     # Perform preparation steps
     # Prepare the environment
-    init_environment(args.pretrained_model, args.config_file_path)
+    init_environment(args.config_file_path)
     # Create model and tokeniser
     load_model()
     # Begin conversation
@@ -166,27 +164,18 @@ def main(args: Namespace):
             # Append latest turn to conversation history file
             append_turn_to_conversation_file(f"User: {input_string}")
             # Gather last n turns to be used as prompt to the model and merge them into a single string
-            context_string = '\n'.join(conversation[-get_context_len(conversation):])
+            context_string = get_context(conversation)
             # Encode the context using the tokeniser
-            context_ids, context_attention_mask = tokenizer(context_string, return_tensors='pt').values()
-            context_ids = context_ids.to(device)
-            context_attention_mask = context_attention_mask.to(device)
-            # Encode response prompt using the tokeniser
-            input_ids = tokenizer(tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
+            input_ids = tokenizer(context_string, return_tensors='pt').input_ids.to(device)
             # Gather generated ids
-            output_ids = model.generate(
-                input_ids=input_ids,
-                context_ids=context_ids,
-                context_attention_mask=context_attention_mask,
-                **generation_kwargs
-            )[0]
+            output_ids = model.generate(input_ids=input_ids, **generation_kwargs)[0, input_ids.size(1):]
             # Decode the response using the tokenizer
             output_string: str = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
             # Print response
-            print("DLDLM: " + output_string)
+            print(f"DLDLM: {output_string}")
             # Append latest response to conversation history
             # Add the special end of sequence token to signal to the transformer that the turn is finished
-            conversation.append(tokenizer.bos_token + output_string + tokenizer.eos_token)
+            conversation.append(output_string)
             # Write response to file
             append_turn_to_conversation_file(f"DLDLM: {output_string}")
         # In case of KeyboardInterrupt (e.g. when Ctrl+C is pressed or SIGTERM is given) stop running

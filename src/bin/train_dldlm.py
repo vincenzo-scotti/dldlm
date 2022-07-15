@@ -11,6 +11,7 @@ from typing import Optional, Union, Tuple, List, Dict, Pattern
 import random
 import math
 import numpy as np
+from training import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
 from training import get_latent_word_counts, get_traces, get_latents_count, get_response_samples
 from training import log_word_counts, log_traces, log_latents_count, log_generated_response
 from training import plot_word_counts, plot_traces
@@ -28,7 +29,6 @@ from model import DLDLMTokenizer, DLDLMFullModel
 # TODO add warm restart
 
 # Constants
-VALIDATION_OBJECTIVE_KEY = 'elbo'
 PPL_NLL_LOSS_KEY = 'lm_loss'
 ELBO_OBJECTIVE_KEY = 'elbo'
 KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
@@ -390,6 +390,14 @@ def process_evaluation(
 ) -> Union[str, Tuple[float, float, float, float]]:
     # Declare global variables
     global corpora, corpus_loaders, model, model_configs, evaluation_configs
+
+    # Define helper function to call validation
+    def improved(latest_value, best_value) -> bool:
+        eval_mode = LOSS_EVALUATION_MODE_MAPPING.get(evaluation_configs.get('monitored_metric'), EvaluationMode.MIN)
+        if eval_mode == EvaluationMode.MAX:
+            return latest_value >= best_value  # ELBO must increase for an improvement
+        else:
+            return latest_value <= best_value  # NLL must decrease for an improvement
     # Current step
     step = step_idx + 1 if step_idx is not None else None
     # Get number of elements
@@ -502,11 +510,17 @@ def process_evaluation(
     )
     # If this is the standard validation process check for best model
     if best_validation_score is not None:
-        if validation_losses_dict[VALIDATION_OBJECTIVE_KEY] >= best_validation_score:  # ELBO must increase for an improvement
+        improvement = improved(
+            validation_losses_dict.get(evaluation_configs.get('monitored_metric'), validation_loss),
+            best_validation_score
+        )
+        if improvement:
             # Save model state dictionary
             model.save_pretrained(best_model_checkpoint_path)
             # Update best score
-            best_validation_score = validation_losses_dict[VALIDATION_OBJECTIVE_KEY]
+            best_validation_score = validation_losses_dict.get(
+                evaluation_configs.get('monitored_metric'), validation_loss
+            )
             # Log update
             logging.info("Validation objective improved, model checkpoint triggered")
 

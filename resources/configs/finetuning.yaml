@@ -47,7 +47,6 @@ beta_scheduler:
 
 evaluation:
   validation_period: 2048
-  monitored_metric: elbo
   metrics:
     word_count:
       top_n: 20

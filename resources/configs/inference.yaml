@@ -1,0 +1,23 @@
+experiment_series: DLDLM_interactive_evaluation
+experiment_id: dldlm_ #
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+dldlm:
+  model:
+    pretrained: &pretrained #
+    max_context_len: 256
+    generate_kwargs:
+      max_length: 512
+      min_length: 1
+      do_sample: true
+      top_p: 1.
+      top_k: 0
+      temperature: 0.7
+  tokeniser:
+    pretrained: *pretrained
+
+log_level: DEBUG
+log_file: true
