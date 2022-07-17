@@ -11,9 +11,10 @@ dldlm:
     kwargs:
       n_styles: &n_styles 8
       tf_size: 50256
-      do_sample_latent: true
-      lm_loss_weight: 0.5
-      latent_loss_threshold: 2.0
+      context_pdrop: 0.0
+      corruption_rate: 0.0
+      kl_loss_threshold: 0.25
+      fixed_prior: true
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -27,18 +28,18 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-5
+    lr: &lr 6.25e-5
   n_epochs: 15
   max_gradient_norm: 1.0
 
 lr_scheduler:
   lr_start: *lr
-  lr_stop: *lr
-  warmup: 0
+  lr_stop: 0
+  warmup: 0.002
 
 beta_scheduler:
-  cycles: 0
-  warmup: 0
+  cycles: 5
+  # warmup: 0
 
 evaluation:
   validation_period: 2048

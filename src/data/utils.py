@@ -68,7 +68,7 @@ class DialogueCorpus(Dataset):
 
     def _get_dialogue_contexts(self, dialogue_turns: List[str]) -> List[str]:
         # Gather all available context strings
-        context_strings: List[str] = [''] + [turn + '\n' for turn in dialogue_turns[:-1]]
+        context_strings: List[str] = [''] + [turn + '\n\n' for turn in dialogue_turns[:-1]]
         # If a limit on the context is given cut it
         if self.max_context_length is not None:
             # Accumulator for contexts

@@ -320,7 +320,7 @@ def process_mini_batch(
             input_ids=input_ids[s_idx:e_idx],
             attention_mask=attention_mask[s_idx:e_idx],
             labels=labels[s_idx:e_idx],
-            latent_loss_weight=beta,
+            kl_loss_weight=beta,
             reduction=model.training
         )
         # Compute gradients if model is training

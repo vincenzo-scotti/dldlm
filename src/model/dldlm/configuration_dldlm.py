@@ -25,8 +25,8 @@ class DLDLMConfig(GPT2Config):
 
             context_pdrop: float = 0.5,
             corruption_rate: float = 0.2,
-            detach_posterior: bool = False,
-            do_sample_latent: bool = False,
+            do_sample_latent: bool = True,
+            fixed_prior: bool = False,
             do_gibbs_sampling: bool = False,
 
             unknown_token_id: Optional[int] = None,
@@ -37,17 +37,19 @@ class DLDLMConfig(GPT2Config):
 
             reduction: bool = True,
             lm_loss: bool = True,
-            latent_loss: bool = True,
+            kl_loss: bool = True,
+            behaviour_loss: bool = False,
             gibbs_sampling_loss: bool = False,
-            prior_loss: bool = False,
-            posterior_loss: bool = False,
+            prior_entropy_loss: bool = False,
+            posterior_entropy_loss: bool = False,
             tf_loss: bool = True,
             lm_loss_weight: float = 1.0,
-            latent_loss_weight: float = 1.0,
-            latent_loss_threshold: float = -float('inf'),
+            kl_loss_weight: float = 1.0,
+            kl_loss_threshold: float = -float('inf'),
+            behaviour_loss_weight: float = 1.0,
             gibbs_sampling_loss_weight: float = 1.0,
-            prior_loss_weight: float = 1.0,
-            posterior_loss_weight: float = 1.0,
+            prior_entropy_loss_weight: float = 1.0,
+            posterior_entropy_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
 
             **kwargs,
@@ -59,7 +61,7 @@ class DLDLMConfig(GPT2Config):
         # Latent analysis hyper-parameters and configs
         self.context_pdrop: float = context_pdrop
         self.corruption_rate: float = corruption_rate
-        self.detach_posterior: bool = detach_posterior
+        self.fixed_prior: bool = fixed_prior
         self.do_sample_latent: bool = do_sample_latent
         self.do_gibbs_sampling: bool = do_gibbs_sampling
         # Special tokens
@@ -72,18 +74,20 @@ class DLDLMConfig(GPT2Config):
         # Losses flags and weights
         self.reduction: bool = reduction
         self.lm_loss: bool = lm_loss
-        self.latent_loss: bool = latent_loss
+        self.kl_loss: bool = kl_loss
+        self.behaviour_loss: bool = behaviour_loss
         self.gibbs_sampling_loss: bool = gibbs_sampling_loss and self.do_gibbs_sampling
-        self.prior_loss: bool = prior_loss
-        self.posterior_loss: bool = posterior_loss
+        self.prior_entropy_loss: bool = prior_entropy_loss
+        self.posterior_entropy_loss: bool = posterior_entropy_loss
         self.tf_loss: bool = tf_loss
         self.lm_loss_weight: float = lm_loss_weight
-        self.latent_loss_weight: float = latent_loss_weight
-        self.latent_loss_threshold: float = latent_loss_threshold
+        self.kl_loss_weight: float = kl_loss_weight
+        self.kl_loss_threshold: float = kl_loss_threshold
+        self.behaviour_loss_weight: float = behaviour_loss_weight
         self.gibbs_sampling_loss_weight: float = gibbs_sampling_loss_weight
+        self.prior_entropy_loss_weight: float = prior_entropy_loss_weight
+        self.posterior_entropy_loss_weight: float = posterior_entropy_loss_weight
         self.tf_loss_weight: float = tf_loss_weight
-        self.prior_loss_weight: float = prior_loss_weight
-        self.posterior_loss_weight: float = posterior_loss_weight
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters
 

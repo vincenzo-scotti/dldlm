@@ -146,15 +146,26 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         if prior_logits is not None and (posterior_logits is not None or latent is not None):
             # KL Divergence
             if posterior_logits is not None:
-                latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
-                    F.log_softmax(prior_logits, -1)[:, self.config.latent_token_ids],
-                    F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
-                    reduction='none',
-                    log_target=True
-                )
+                # Prior from posterior target KL divergence
+                if kwargs.get('fixed_prior', self.config.fixed_prior):
+                    latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
+                        F.log_softmax(torch.full_like(
+                            posterior_logits[:, self.config.latent_token_ids], 1 / self.config.num_styles
+                        ), -1),
+                        F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
+                        reduction='none',
+                        log_target=True
+                    )
+                else:
+                    latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
+                        F.log_softmax(prior_logits, -1)[:, self.config.latent_token_ids],
+                        F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
+                        reduction='none',
+                        log_target=True
+                    )
                 # Apply thresholding if required
                 latent_kl_threshold_loss: Optional[torch.Tensor] = torch.max(
-                    latent_kl_div_loss, torch.full_like(latent_kl_div_loss, self.config.latent_loss_threshold)
+                    latent_kl_div_loss, torch.full_like(latent_kl_div_loss, self.config.kl_loss_threshold)
                 ).sum(-1)
                 # Sum over last axis
                 latent_kl_div_loss = latent_kl_div_loss.sum(-1)
@@ -178,14 +189,14 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     posterior_latent_nll_loss = posterior_latent_nll_loss.mean()
             else:
                 posterior_latent_nll_loss = None
-            if kwargs.get('latent_loss', self.config.latent_loss):
-                if kwargs.get('detach_posterior', self.config.detach_posterior):
-                    loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * prior_latent_nll_loss
+            # Combine with loss if required
+            if kwargs.get('kl_loss', self.config.kl_loss):
+                if self.config.kl_loss_threshold > -float('inf'):
+                    loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_threshold_loss
                 else:
-                    if self.config.latent_loss_threshold > -float('inf'):
-                        loss += latent_kl_threshold_loss
-                    else:
-                        loss += kwargs.get('latent_loss_weight', self.config.latent_loss_weight) * latent_kl_div_loss
+                    loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_div_loss
+            if kwargs.get('behaviour_loss', self.config.behaviour_loss):
+                loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_loss
             if kwargs.get('gibbs_sampling_loss', self.config.gibbs_sampling_loss):
                 loss += kwargs.get('gibbs_sampling_loss_weight', self.config.gibbs_sampling_loss_weight) * posterior_latent_nll_loss
         else:
@@ -201,9 +212,9 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             prior_dist_entropy = -(prior_dist * (prior_dist + 1e-12).log2()).sum(dim=-1)
             if reduction:
                 prior_dist_entropy = prior_dist_entropy.mean()
-            if kwargs.get('prior_loss', self.config.prior_loss):
+            if kwargs.get('prior_entropy_loss', self.config.prior_entropy_loss):
                 # This goes in the other direction, I want it to be high to have a maximum entropy estimator
-                loss -= kwargs.get('prior_loss_weight', self.config.prior_loss_weight) * prior_dist_entropy
+                loss -= kwargs.get('prior_entropy_loss_weight', self.config.prior_entropy_loss_weight) * prior_dist_entropy
         else:
             prior_dist_entropy = None
         # Posterior entropy
@@ -212,8 +223,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             posterior_dist_entropy = -(posterior_dist * (posterior_dist + 1e-12).log2()).sum(dim=-1)
             if reduction:
                 posterior_dist_entropy = posterior_dist_entropy.mean()
-            if kwargs.get('posterior_loss', self.config.posterior_loss):
-                loss += kwargs.get('posterior_loss_weight', self.config.posterior_loss_weight) * posterior_dist_entropy
+            if kwargs.get('posterior_entropy_loss', self.config.posterior_entropy_loss):
+                loss += kwargs.get('posterior_entropy_loss_weight', self.config.posterior_entropy_loss_weight) * posterior_dist_entropy
         else:
             posterior_dist_entropy = None
         # tf prediction loss
@@ -394,12 +405,12 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Decoding step
         # Latent decoding step
         if kwargs.get('do_sample_latent', self.config.do_sample_latent):
-            latent_ids = torch.multinomial(
-                torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1), 1
-            )
+            latent_ids = torch.multinomial(torch.softmax(
+                    (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
+            ), 1)
         else:
             latent_ids = torch.argmax(
-                posterior_logits if posterior_logits is not None else prior_logits, dim=-1
+                (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
             ).unsqueeze(-1)
         latent = latent_ids.squeeze()
         # Update inputs and memories
@@ -443,8 +454,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     'vh, bv -> bh',
                     self.transformer.wte.weight,
                     F.gumbel_softmax(
-                        posterior_logits if posterior_logits is not None else prior_logits,
-                        hard=True
+                        (posterior_logits if posterior_logits is not None else prior_logits), hard=True
                     )
                 ).unsqueeze(1)
             # Decode latent embedding
@@ -568,17 +578,17 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 # Delete latest token from past
                 past = tuple((k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past)
                 # Compute latent logits
+                # Prior logits
+                prior_logits = self.lm_head(prior_last_hidden_state)
                 # Latent mask to prevent using common tokens
-                latent_mask = torch.zeros((1, self.config.vocab_size), device=device)
+                latent_mask = torch.zeros_like(prior_logits)
                 latent_mask[:, self.config.latent_token_ids] = 1.
                 latent_mask = torch.log(latent_mask)
-                # Prior logits
-                prior_logits = self.lm_head(prior_last_hidden_state) + latent_mask
                 # Latent decoding step
                 if kwargs.get('do_sample_latent', self.config.do_sample_latent):
-                    latent_ids = torch.multinomial(torch.softmax(prior_logits, dim=-1), 1)
+                    latent_ids = torch.multinomial(torch.softmax(prior_logits + latent_mask, dim=-1), 1)
                 else:
-                    latent_ids = torch.argmax(prior_logits, dim=-1).unsqueeze(-1)
+                    latent_ids = torch.argmax(prior_logits + latent_mask, dim=-1).unsqueeze(-1)
                 latent = latent_ids.squeeze()
                 # Add sampled latents in place of the prior tokens
                 input_ids[prior_token_id_idxs] = latent
@@ -876,14 +886,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             output_hidden_states=output_hidden_states,
             **kwargs
         )
-        # Latent mask to prevent using latent analysis tokens
-        latent_mask = torch.ones((1, self.config.vocab_size), device=device)
-        latent_mask[:, self.config.prior_token_id] = 0.
-        latent_mask[:, self.config.posterior_token_id] = 0.
-        latent_mask[:, self.config.latent_token_ids] = 0.
-        latent_mask = torch.log(latent_mask)
         # Compute LM logits
-        lm_logits = self.lm_head(last_hidden_state) + latent_mask
+        lm_logits = self.lm_head(last_hidden_state)
         # Compute TF model logits
         tf_logits = self.tf_head(latent_last_hidden_state)
 

@@ -16,9 +16,9 @@ dldlm:
       # tf_loss: false
       # prior_loss: true
       # posterior_loss: true
-      do_sample_latent: true
-      lm_loss_weight: 0.5
-      latent_loss_threshold: 2.0
+      # lm_loss_weight: 0.5
+      # latent_loss_threshold: 2.0
+      fixed_prior: true
     generate_kwargs:
       max_length: 384
       min_length: 1
