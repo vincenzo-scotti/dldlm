@@ -197,8 +197,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_div_loss
             if kwargs.get('behaviour_loss', self.config.behaviour_loss):
                 loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_loss
-            if kwargs.get('gibbs_sampling_loss', self.config.gibbs_sampling_loss):
-                loss += kwargs.get('gibbs_sampling_loss_weight', self.config.gibbs_sampling_loss_weight) * posterior_latent_nll_loss
+            if kwargs.get('sampling_loss', self.config.sampling_loss):
+                loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_loss
         else:
             latent_kl_div_loss = latent_kl_threshold_loss = prior_latent_nll_loss = posterior_latent_nll_loss = None
         # ELBO
@@ -404,14 +404,36 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     ):
         # Decoding step
         # Latent decoding step
-        if kwargs.get('do_sample_latent', self.config.do_sample_latent):
-            latent_ids = torch.multinomial(torch.softmax(
-                    (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
-            ), 1)
+        # If model is training process latent embedding and then the rest of the sequence
+        if self.training:
+            # Compute latent embedding
+            # If doing gibbs sampling for fine tuning sample from original distribution
+            if kwargs.get('do_gibbs_sampling', self.config.do_gibbs_sampling):
+                p_soft = torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1)
+                latent_ids = torch.multinomial(p_soft, 1)
+                p_hard = torch.zeros_like(
+                    posterior_logits if posterior_logits is not None else prior_logits,
+                    memory_format=torch.legacy_contiguous_format
+                ).scatter_(-1, latent_ids, 1.0)
+                latent_ids_sparse = p_hard - p_soft.detach() + p_soft
+            # Else if doing pretraining sample from gumbel distribution
+            else:
+                latent_ids_sparse = F.gumbel_softmax(
+                    (posterior_logits if posterior_logits is not None else prior_logits), hard=True
+                )
+                latent_ids = torch.argmax(latent_ids_sparse).unsqueeze(-1)
+            latent_embeds = torch.einsum('vh, bv -> bh', self.transformer.wte.weight, latent_ids_sparse).unsqueeze(1)
+        # Else simply extract the ids of the latent
         else:
-            latent_ids = torch.argmax(
-                (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
-            ).unsqueeze(-1)
+            if kwargs.get('do_sample_latent', self.config.do_sample_latent):
+                latent_ids = torch.multinomial(torch.softmax(
+                        (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
+                ), 1)
+            else:
+                latent_ids = torch.argmax(
+                    (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
+                ).unsqueeze(-1)
+            latent_embeds = None
         latent = latent_ids.squeeze()
         # Update inputs and memories
         # Attention
@@ -436,27 +458,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         token_type_ids = token_type_ids[:, response_start_idx - 1:] if token_type_ids is not None else None
         position_ids = position_ids[:, response_start_idx - 1:] if position_ids is not None else None
         # If model is training process latent embedding and then the rest of the sequence
-        if self.training:
-            # Compute latent embedding
-            # If doing gibbs sampling for fine tuning sample from original distribution
-            if kwargs.get('do_gibbs_sampling', self.config.do_gibbs_sampling):
-                p_soft = torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1)
-                p_hard = torch.zeros_like(
-                    posterior_logits if posterior_logits is not None else prior_logits,
-                    memory_format=torch.legacy_contiguous_format
-                ).scatter_(-1, latent_ids, 1.0)
-                latent_embeds = torch.einsum(
-                    'vh, bv -> bh', self.transformer.wte.weight, p_hard - p_soft.detach() + p_soft
-                ).unsqueeze(1)
-            # Else if doing pretraining sample from gumbel distribution
-            else:
-                latent_embeds = torch.einsum(
-                    'vh, bv -> bh',
-                    self.transformer.wte.weight,
-                    F.gumbel_softmax(
-                        (posterior_logits if posterior_logits is not None else prior_logits), hard=True
-                    )
-                ).unsqueeze(1)
+        if self.training and not kwargs.get('detach_posterior', self.config.detach_posterior):
             # Decode latent embedding
             latent_hidden_outputs = self._compute_hidden_transformation(
                 input_embeds=latent_embeds,

@@ -27,6 +27,7 @@ class DLDLMConfig(GPT2Config):
             corruption_rate: float = 0.2,
             do_sample_latent: bool = True,
             fixed_prior: bool = False,
+            detach_posterior: bool = False,
             do_gibbs_sampling: bool = False,
 
             unknown_token_id: Optional[int] = None,
@@ -39,7 +40,7 @@ class DLDLMConfig(GPT2Config):
             lm_loss: bool = True,
             kl_loss: bool = True,
             behaviour_loss: bool = False,
-            gibbs_sampling_loss: bool = False,
+            sampling_loss: bool = False,
             prior_entropy_loss: bool = False,
             posterior_entropy_loss: bool = False,
             tf_loss: bool = True,
@@ -47,7 +48,7 @@ class DLDLMConfig(GPT2Config):
             kl_loss_weight: float = 1.0,
             kl_loss_threshold: float = -float('inf'),
             behaviour_loss_weight: float = 1.0,
-            gibbs_sampling_loss_weight: float = 1.0,
+            sampling_loss_weight: float = 1.0,
             prior_entropy_loss_weight: float = 1.0,
             posterior_entropy_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
@@ -63,6 +64,7 @@ class DLDLMConfig(GPT2Config):
         self.corruption_rate: float = corruption_rate
         self.fixed_prior: bool = fixed_prior
         self.do_sample_latent: bool = do_sample_latent
+        self.detach_posterior: bool = detach_posterior
         self.do_gibbs_sampling: bool = do_gibbs_sampling
         # Special tokens
         self.unknown_token_id: Optional[int] = unknown_token_id
@@ -76,7 +78,7 @@ class DLDLMConfig(GPT2Config):
         self.lm_loss: bool = lm_loss
         self.kl_loss: bool = kl_loss
         self.behaviour_loss: bool = behaviour_loss
-        self.gibbs_sampling_loss: bool = gibbs_sampling_loss and self.do_gibbs_sampling
+        self.sampling_loss: bool = sampling_loss
         self.prior_entropy_loss: bool = prior_entropy_loss
         self.posterior_entropy_loss: bool = posterior_entropy_loss
         self.tf_loss: bool = tf_loss
@@ -84,7 +86,7 @@ class DLDLMConfig(GPT2Config):
         self.kl_loss_weight: float = kl_loss_weight
         self.kl_loss_threshold: float = kl_loss_threshold
         self.behaviour_loss_weight: float = behaviour_loss_weight
-        self.gibbs_sampling_loss_weight: float = gibbs_sampling_loss_weight
+        self.sampling_loss_weight: float = sampling_loss_weight
         self.prior_entropy_loss_weight: float = prior_entropy_loss_weight
         self.posterior_entropy_loss_weight: float = posterior_entropy_loss_weight
         self.tf_loss_weight: float = tf_loss_weight
