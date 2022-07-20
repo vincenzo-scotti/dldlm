@@ -214,7 +214,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 prior_dist_entropy = prior_dist_entropy.mean()
             if kwargs.get('prior_entropy_loss', self.config.prior_entropy_loss):
                 # This goes in the other direction, I want it to be high to have a maximum entropy estimator
-                loss -= kwargs.get('prior_entropy_loss_weight', self.config.prior_entropy_loss_weight) * prior_dist_entropy
+                loss += kwargs.get('prior_entropy_loss_weight', self.config.prior_entropy_loss_weight) * prior_dist_entropy
         else:
             prior_dist_entropy = None
         # Posterior entropy
@@ -421,7 +421,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 latent_ids_sparse = F.gumbel_softmax(
                     (posterior_logits if posterior_logits is not None else prior_logits), hard=True
                 )
-                latent_ids = torch.argmax(latent_ids_sparse).unsqueeze(-1)
+                latent_ids = torch.argmax(latent_ids_sparse, dim=-1).unsqueeze(-1)
             latent_embeds = torch.einsum('vh, bv -> bh', self.transformer.wte.weight, latent_ids_sparse).unsqueeze(1)
         # Else simply extract the ids of the latent
         else:
@@ -436,13 +436,6 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             latent_embeds = None
         latent = latent_ids.squeeze()
         # Update inputs and memories
-        # Attention
-        attention_mask = self._context_dropout(
-            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
-            prior_token_id_idxs,
-            p=self.config.context_pdrop,
-            training=self.training
-        )
         # Already processed context tokens
         past_key_values = tuple(
             (k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
@@ -825,6 +818,14 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
                 "Responses must be aligned (start from same position) to use this model."
         except ValueError:
             response_start_idx = 1
+
+        # Attention
+        attention_mask = self._context_dropout(
+            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            prior_token_id_idxs,
+            p=self.config.context_pdrop,
+            training=self.training
+        )
 
         # Encoding step
         (

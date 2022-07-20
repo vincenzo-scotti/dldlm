@@ -1,6 +1,6 @@
 # DLDLM
 
-Codebase for the paper "[Learning high-level structures in open-domain conversations for task oriented chatbots](https://www.overleaf.com/read/nnvywbkzvgjn)". 
+Codebase for the paper "[Taming Pre-Trained Transformers into Discrete Variational AutoEncoders for Dialogue](https://www.overleaf.com/read/nnvywbkzvgjn)". 
 This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM) described in the paper.
 
 ## Repository structure

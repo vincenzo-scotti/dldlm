@@ -49,7 +49,7 @@ class DLDLMConfig(GPT2Config):
             kl_loss_threshold: float = -float('inf'),
             behaviour_loss_weight: float = 1.0,
             sampling_loss_weight: float = 1.0,
-            prior_entropy_loss_weight: float = 1.0,
+            prior_entropy_loss_weight: float = -1.0,
             posterior_entropy_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
 

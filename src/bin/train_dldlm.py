@@ -321,6 +321,7 @@ def process_mini_batch(
             attention_mask=attention_mask[s_idx:e_idx],
             labels=labels[s_idx:e_idx],
             kl_loss_weight=beta,
+            # behaviour_loss_weight=beta,
             reduction=model.training
         )
         # Compute gradients if model is training
@@ -591,7 +592,7 @@ def fit_model():
         # Iterate over mini-batches
         for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit('train')]):
             # Do validation step if required
-            if b_idx % evaluation_configs['validation_period'] == 0:
+            if step_idx % evaluation_configs['validation_period'] == 0:
                 # Run validation step
                 best_validation_score = evaluation_step()
                 # Update validation counter
