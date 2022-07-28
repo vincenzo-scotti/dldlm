@@ -44,7 +44,9 @@ class DLDLMLossFunctionOutput(ModelOutput):
     latent_kl_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     elbo: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    prior_latent_nll_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     posterior_latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    posterior_latent_nll_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     posterior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     tf_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -105,7 +107,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     load_tf_weights = load_tf_weights_in_dldlm
     # base_model_prefix = "discrete_latent_transformer"  # TODO decide whether to leave gpt2 or find a fix for this base model issue
     is_parallelizable = False
-    supports_gradient_checkpointing = False
+    supports_gradient_checkpointing = True
 
     def compute_loss_function(
             self,
@@ -177,18 +179,27 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             # Posterior negative Log-Likelihood
             if latent is not None:
                 prior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
+                # Apply thresholding if required
+                prior_latent_nll_threshold_loss: Optional[torch.Tensor] = torch.max(
+                    prior_latent_nll_loss, torch.full_like(prior_latent_nll_loss, self.config.behaviour_loss_threshold)
+                )
                 if reduction:
                     prior_latent_nll_loss = prior_latent_nll_loss.mean()
+                    prior_latent_nll_threshold_loss = prior_latent_nll_threshold_loss.mean()
             else:
-                prior_latent_nll_loss = None
+                prior_latent_nll_loss = prior_latent_nll_threshold_loss = None
             if posterior_logits is not None and latent is not None:
                 posterior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(
                     posterior_logits, latent, reduction='none'
                 )
+                posterior_latent_nll_threshold_loss: Optional[torch.Tensor] = torch.max(
+                    posterior_latent_nll_loss, torch.full_like(posterior_latent_nll_loss, self.config.sampling_loss_threshold)
+                )
                 if reduction:
                     posterior_latent_nll_loss = posterior_latent_nll_loss.mean()
+                    posterior_latent_nll_threshold_loss = posterior_latent_nll_threshold_loss.mean()
             else:
-                posterior_latent_nll_loss = None
+                posterior_latent_nll_loss = posterior_latent_nll_threshold_loss = None
             # Combine with loss if required
             if kwargs.get('kl_loss', self.config.kl_loss):
                 if self.config.kl_loss_threshold > -float('inf'):
@@ -196,11 +207,19 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 else:
                     loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_div_loss
             if kwargs.get('behaviour_loss', self.config.behaviour_loss):
-                loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_loss
+                if self.config.behaviour_loss_threshold > -float('inf'):
+                    loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_threshold_loss
+                else:
+                    loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_loss
             if kwargs.get('sampling_loss', self.config.sampling_loss):
-                loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_loss
+                if self.config.sampling_loss_threshold > -float('inf'):
+                    loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_threshold_loss
+                else:
+                    loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_loss
         else:
-            latent_kl_div_loss = latent_kl_threshold_loss = prior_latent_nll_loss = posterior_latent_nll_loss = None
+            latent_kl_div_loss = latent_kl_threshold_loss = None
+            prior_latent_nll_loss = prior_latent_nll_threshold_loss = None
+            posterior_latent_nll_loss = posterior_latent_nll_threshold_loss = None
         # ELBO
         if lm_loss is not None and latent_kl_div_loss is not None:
             elbo: Optional[torch.Tensor] = -(lm_loss + latent_kl_div_loss)
@@ -252,7 +271,9 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             latent_kl_div_loss=latent_kl_div_loss,
             latent_kl_threshold_loss=latent_kl_threshold_loss,
             prior_latent_nll_loss=prior_latent_nll_loss,
+            prior_latent_nll_threshold_loss=prior_latent_nll_threshold_loss,
             posterior_latent_nll_loss=posterior_latent_nll_loss,
+            posterior_latent_nll_threshold_loss=posterior_latent_nll_threshold_loss,
             elbo=elbo,
             prior_dist_entropy=prior_dist_entropy,
             posterior_dist_entropy=posterior_dist_entropy,
@@ -274,6 +295,9 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             output_attentions=None,
             output_hidden_states=None,
     ) -> DLDLMModelOutput:
+        # Fix empty past issue
+        if past_key_values is not None and len(past_key_values) == 0:
+            past_key_values = None
         # Attention and token types are taken as they are since now it is a single sequence
         # There is no split between context and response
         if position_ids is None and attention_mask is not None:  # Compute position IDs from attention
@@ -346,7 +370,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         analysis_last_hidden_state = analysis_hidden_outputs.last_hidden_state
         # Prepare outputs from encoded if needed
         # Past key values
-        if use_cache:
+        if use_cache and past_key_values is not None:
             prior_past_key_values = tuple(
                 (k[:, :, :response_start_idx], k[:, :, :response_start_idx]) for (k, v) in past_key_values
             )
@@ -354,13 +378,13 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         else:
             prior_past_key_values = posterior_past_key_values = None
         # Hidden states
-        if output_hidden_states:
+        if output_hidden_states and analysis_hidden_outputs.hidden_states is not None:
             prior_hidden_states = tuple(h[:, :response_start_idx] for h in analysis_hidden_outputs.hidden_states)
             posterior_hidden_states = analysis_hidden_outputs.hidden_states
         else:
             prior_hidden_states = posterior_hidden_states = None
         # Attentions
-        if output_attentions:
+        if output_attentions and analysis_hidden_outputs.attentions is not None:
             prior_attentions = tuple(
                 a[:, :, :response_start_idx, :response_start_idx] for a in analysis_hidden_outputs.attentions
             )
@@ -434,79 +458,52 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
                 ).unsqueeze(-1)
             latent_embeds = None
-        latent = latent_ids.squeeze()
+        latent = latent_ids.squeeze(-1)
         # Update inputs and memories
         # Already processed context tokens
         past_key_values = tuple(
             (k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
         ) if response_start_idx > 1 else None
         # Input response tokens
-        # Substitute latent analysis tokens
         input_ids = input_ids.clone()
+        # Remove already processed tokens if not using gradient checkpointing
+        if not (self.transformer.gradient_checkpointing and self.training):
+            # Remove already processed tokens
+            input_ids = input_ids[:, response_start_idx - 1:]
+            # Additional inputs
+            token_type_ids = token_type_ids[:, response_start_idx - 1:] if token_type_ids is not None else None
+            position_ids = position_ids[:, response_start_idx - 1:] if position_ids is not None else None
+            # Re-compute positions of special tokens
+            prior_token_id_idxs = torch.where(input_ids == self.config.prior_token_id)
+            posterior_token_id_idxs = torch.where(input_ids == self.config.posterior_token_id)
+        # Substitute latent analysis tokens
         input_ids[prior_token_id_idxs] = latent
         input_ids[posterior_token_id_idxs] = self.config.eos_token_id
-        # Remove already processed tokens
-        input_ids = input_ids[:, response_start_idx - 1:]
-        # Additional inputs
-        token_type_ids = token_type_ids[:, response_start_idx - 1:] if token_type_ids is not None else None
-        position_ids = position_ids[:, response_start_idx - 1:] if position_ids is not None else None
         # If model is training process latent embedding and then the rest of the sequence
         if self.training and not kwargs.get('detach_posterior', self.config.detach_posterior):
-            # Decode latent embedding
-            latent_hidden_outputs = self._compute_hidden_transformation(
-                input_embeds=latent_embeds,
-                past_key_values=past_key_values,
-                attention_mask=attention_mask[:, :response_start_idx],
-                token_type_ids=token_type_ids[:, :1] if token_type_ids is not None else None,
-                position_ids=position_ids[:, :1] if position_ids is not None else None,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states
-            )
-            # Decode response
-            decoding_hidden_outputs = self._compute_hidden_transformation(
-                input_ids=input_ids[:, 1:],
-                past_key_values=latent_hidden_outputs.past_key_values,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids[:, 1:] if token_type_ids is not None else None,
-                position_ids=position_ids[:, 1:] if position_ids is not None else None,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            last_hidden_state = torch.cat(
-                [latent_hidden_outputs.last_hidden_state, decoding_hidden_outputs.last_hidden_state], dim=1
-            ) if decoding_hidden_outputs.last_hidden_state is not None else None
-            past_key_values = decoding_hidden_outputs.past_key_values
-            hidden_states = tuple(
-                torch.cat([h_z, h_y], dim=1)
-                for h_z, h_y in zip(latent_hidden_outputs.hidden_states, decoding_hidden_outputs.hidden_states)
-            ) if decoding_hidden_outputs.hidden_states is not None else None
-            attentions = tuple(
-                torch.cat([F.pad(attention_z, [0, attention_y.size(-2)]), attention_y], dim=1)
-                for attention_z, attention_y in
-                zip(latent_hidden_outputs.attentions, decoding_hidden_outputs.attentions)
-            ) if decoding_hidden_outputs.attentions is not None else None
-        else:  # Else process the entire sequence as usual
-            # Decode latent and response
-            decoding_hidden_outputs = self._compute_hidden_transformation(
-                input_ids=input_ids,
-                input_embeds=input_embeds,
-                past_key_values=past_key_values,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                head_mask=head_mask,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-            )
-            last_hidden_state = decoding_hidden_outputs.last_hidden_state
-            past_key_values = decoding_hidden_outputs.past_key_values
-            hidden_states = decoding_hidden_outputs.hidden_states
-            attentions = decoding_hidden_outputs.attentions
-        latent_last_hidden_state = last_hidden_state[:, 0]
+            input_embeds = self.transformer.wte(input_ids)
+            input_embeds[prior_token_id_idxs] = latent_embeds
+            input_ids = None
+        else:
+            input_embeds = None
+        # Decode latent and response
+        decoding_hidden_outputs = self._compute_hidden_transformation(
+            input_ids=input_ids,
+            input_embeds=input_embeds,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
+        last_hidden_state = decoding_hidden_outputs.last_hidden_state
+        past_key_values = decoding_hidden_outputs.past_key_values
+        hidden_states = decoding_hidden_outputs.hidden_states
+        attentions = decoding_hidden_outputs.attentions
+        latent_last_hidden_state = last_hidden_state[prior_token_id_idxs]
 
         return latent, latent_last_hidden_state, last_hidden_state, past_key_values, hidden_states, attentions
 
@@ -546,7 +543,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 "position_ids": position_ids,
                 "token_type_ids": token_type_ids,
                 "use_cache": kwargs.get("use_cache"),
-                "generative": True
+                "generative": True,
+                "use_latent_mask": True
             }
         else:
             # Else encode context and, optionally, sample latent
@@ -584,10 +582,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_ids = torch.multinomial(torch.softmax(prior_logits + latent_mask, dim=-1), 1)
                 else:
                     latent_ids = torch.argmax(prior_logits + latent_mask, dim=-1).unsqueeze(-1)
-                latent = latent_ids.squeeze()
+                latent = latent_ids.squeeze(-1)
                 # Add sampled latents in place of the prior tokens
                 input_ids[prior_token_id_idxs] = latent
-            elif all(any(latent_token in ids for latent_token in self.config.latent_token_ids) for ids in input_ids):
+            else:  # if all(any(latent_token in ids for latent_token in self.config.latent_token_ids) for ids in input_ids):
                 # Check if there is some context a part from the latent and compute the past
                 if input_ids.size(1) > 1:
                     past = self._compute_hidden_transformation(
@@ -608,11 +606,11 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                         "use_cache": kwargs.get("use_cache"),
                         "generative": True
                     }
-            else:
-                raise ValueError(
-                    "Either a prior latent token or one of the available latent token "
-                    "must be part of the input sequence"
-                )
+            # else:
+            #     raise ValueError(
+            #         "Either a prior latent token or one of the available latent token "
+            #         "must be part of the input sequence"
+            #     )
 
             return self.prepare_inputs_for_generation(
                 input_ids,
@@ -707,7 +705,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
         self.transformer: DLDLMModel = DLDLMModel(config)
         # Output heads
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.tf_head = nn.Linear(config.hidden_size, config.tf_size, bias=False)
+        if config.tf_size is not None and config.tf_size > 0:
+            self.tf_head = nn.Linear(config.hidden_size, config.tf_size, bias=False)
         self.cls_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
 
         self.init_weights()
@@ -735,7 +734,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
         **kwargs,
     ):
         # If the model is in generative mode, call generative forward (it only computes hidden transformations and LM)
-        if kwargs.get('generative', False):
+        if kwargs.get('generative', False) or kwargs.get('unconditioned', self.config.unconditioned):
             return self._generative_forward(
                 input_ids=input_ids,
                 input_embeds=input_embeds,
@@ -890,9 +889,9 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             **kwargs
         )
         # Compute LM logits
-        lm_logits = self.lm_head(last_hidden_state)
+        lm_logits = self.lm_head(last_hidden_state[:, -(labels.size(1) if labels is not None else 0):])
         # Compute TF model logits
-        tf_logits = self.tf_head(latent_last_hidden_state)
+        tf_logits = self.tf_head(latent_last_hidden_state) if hasattr(self, 'tf_head') else None
 
         # Loss computation
         loss_function_output: DLDLMLossFunctionOutput = self.compute_loss_function(
@@ -942,6 +941,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             head_mask=None,
+            labels: Optional[torch.LongTensor] = None,  # Shape (batch_size,)
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
@@ -969,17 +969,28 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-
-        # Latent mask to prevent using latent analysis tokens
-        latent_mask = torch.ones((1, self.config.vocab_size), device=device)
-        latent_mask[:, self.config.prior_token_id] = 0.
-        latent_mask[:, self.config.posterior_token_id] = 0.
-        latent_mask[:, self.config.latent_token_ids] = 0.
-        latent_mask = torch.log(latent_mask)
         # Compute LM logits
-        lm_logits = self.lm_head(transformer_outputs.last_hidden_state) + latent_mask
+        last_hidden_state = transformer_outputs.last_hidden_state[:, -(labels.size(1) if labels is not None else 0):]
+        lm_logits = self.lm_head(last_hidden_state)
+        if kwargs.get('use_latent_mask', False):
+            # Latent mask to prevent using latent analysis tokens
+            latent_mask = torch.ones((1, self.config.vocab_size), device=device)
+            latent_mask[:, self.config.prior_token_id] = 0.
+            latent_mask[:, self.config.posterior_token_id] = 0.
+            latent_mask[:, self.config.latent_token_ids] = 0.
+            latent_mask = torch.log(latent_mask)
+            lm_logits += latent_mask
+
+        # Loss computation
+        loss_function_output: DLDLMLossFunctionOutput = self.compute_loss_function(
+            lm_logits=lm_logits,
+            labels=labels,
+            **kwargs
+        )
 
         output: DLDLMFullModelOutput = DLDLMFullModelOutput(
+            loss=loss_function_output.loss,
+            loss_function_output=loss_function_output,
             logits=lm_logits,
             past_key_values=transformer_outputs.past_key_values if use_cache else None,
             hidden_states=transformer_outputs.hidden_states if output_hidden_states else None,

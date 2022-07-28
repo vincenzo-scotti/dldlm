@@ -22,22 +22,26 @@ from torch.cuda.amp import autocast, GradScaler
 from training import LinearLR, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
-from data import PreTrainingCorpus, DataSetSplit
+from data import DLDLMCorpus, DataSetSplit
 from model import DLDLMTokenizer, DLDLMFullModel
 # TODO add fine tuning script
 # TODO add LR plot
 # TODO add warm restart
 
 # Constants
+MAX_MEM_FAILURES = 16
 PPL_NLL_LOSS_KEY = 'lm_loss'
 ELBO_OBJECTIVE_KEY = 'elbo'
 KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
 LOSS_KEYS_MAPPING = {
+    'loss': 'Loss',
     'lm_loss': 'Language Modelling',
     'latent_kl_div_loss': 'Latent KL Divergence',
     'latent_kl_threshold_loss': 'Latent KL Divergence with threshold',
     'prior_latent_nll_loss': 'Latent Prior Negative Log-Likelihood',
+    'prior_latent_nll_threshold_loss': 'Latent Prior Negative Log-Likelihood with threshold',
     'posterior_latent_nll_loss': 'Latent Posterior Negative Log-Likelihood',
+    'posterior_latent_nll_threshold_loss': 'Latent Posterior Negative Log-Likelihood with threshold',
     'elbo': 'Evidence Lower BOund',
     'prior_dist_entropy': 'Prior Latent Distribution Entropy',
     'posterior_dist_entropy': 'Posterior Latent Distribution Entropy',
@@ -51,8 +55,10 @@ MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
 # Variables to control model and optimization parameters
 # Environment
 random_seed: Optional[int]
+mem_failures: int = MAX_MEM_FAILURES
 device: torch.device
 mixed_precision: bool = True
+checkpoint_gradient: bool = False
 writer: SummaryWriter
 # Model
 model_configs: Dict
@@ -61,7 +67,7 @@ tokenizer_configs: Dict
 tokenizer: DLDLMTokenizer
 # Data
 corpus_configs: Dict
-corpora: Dict[DataSetSplit, PreTrainingCorpus] = dict()
+corpora: Dict[DataSetSplit, DLDLMCorpus] = dict()
 corpus_loaders: Dict[DataSetSplit, DataLoader] = dict()
 # Optimisation
 optimizer_configs: Dict
@@ -87,7 +93,7 @@ best_model_checkpoint_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, writer
+    global random_seed, device, mixed_precision, checkpoint_gradient, writer
     global model_configs, tokenizer_configs, corpus_configs, \
         optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
@@ -182,6 +188,9 @@ def init_environment(config_file_path: str):
     # Set mixed precision
     mixed_precision = configs.get('mixed_precision', mixed_precision)
     logging.info(f"Mixed precision set to '{mixed_precision}'")
+    # Check for gradient checkpointing
+    checkpoint_gradient = configs.get('checkpoint_gradient', checkpoint_gradient)
+    logging.info(f"Gradient checkpointing {'enabled' if checkpoint_gradient else 'disabled'}")
     # Load remaining configs
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
@@ -207,7 +216,7 @@ def clean_environment():
 
 def init_model():
     # Declare global variables
-    global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path, best_model_checkpoint_path
+    global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path, best_model_checkpoint_path, checkpoint_gradient
     # Create tokeniser instance
     tokenizer = DLDLMTokenizer.from_pretrained(
         tokenizer_configs['pretrained']
@@ -226,6 +235,10 @@ def init_model():
         tokenizer
     )
     logging.info("DLDLM model instantiated and extended")
+    # Possibly enable gradient checkpointing
+    if checkpoint_gradient:
+        model.gradient_checkpointing_enable()
+        logging.info("DLDLM gradient checkpoint enabled")
     # Move model to device
     model = model.to(device)
     logging.info(f"Model moved to device: {device}")
@@ -238,7 +251,7 @@ def init_data_loaders():
     corpus_loaders = {}
     for split in corpus_configs['splits']:
         # Create data set instance
-        data_set: PreTrainingCorpus = PreTrainingCorpus(
+        data_set: DLDLMCorpus = DLDLMCorpus(
             corpus_configs['corpora_dir_path'],
             tokenizer,
             split,
@@ -292,15 +305,16 @@ def process_mini_batch(
         input_ids: torch.LongTensor,  # Shape (batch_size, )
         attention_mask: torch.LongTensor,  # Shape (batch_size, length)
         labels: torch.LongTensor,  # Shape (batch_size, response_length)
-        raw_data: List[Dict]
+        raw_data: List[Dict],
+        in_mem: Optional[int] = None
 ) -> Union[Tuple[float, Dict[str, float]], Tuple[List[float], Dict[str, List[float]], List[Dict]]]:
     # Declare global variables
-    global corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
+    global mem_failures, corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
     global latent_count_txt_dir_path, current_experiment_dir_path, count_plots_dir_path, \
         trace_plots_dir_path, count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path
     # Compute helper params
     mini_batch_size: int = len(input_ids)
-    in_mem: int = corpus_configs['splits'][split]['in_mem']
+    in_mem: int = in_mem if in_mem is not None else corpus_configs['splits'][split]['in_mem']
     # Create accumulators
     loss: Union[float, List[float]] = 0.0 if model.training else list()
     losses_dict: Dict[str, Union[float, List[float]]] = {
@@ -314,46 +328,78 @@ def process_mini_batch(
     beta = beta_scheduler.get_beta() if model.training else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
-    for s_idx, e_idx in idxs:
-        # Process current elements
-        model_outputs = model(
-            input_ids=input_ids[s_idx:e_idx],
-            attention_mask=attention_mask[s_idx:e_idx],
-            labels=labels[s_idx:e_idx],
-            kl_loss_weight=beta,
-            # behaviour_loss_weight=beta,
-            reduction=model.training
-        )
-        # Compute gradients if model is training
-        if model.training:
-            tmp_loss = model_outputs.loss
-            tmp_losses_dict = {
-                key: model_outputs.loss_function_output[key].cpu().item()
-                for key in losses_dict
-            }
-            # Scale loss if using gradient accumulation
-            if e_idx - s_idx != mini_batch_size:
-                scaling_factor = (e_idx - s_idx) / mini_batch_size
-                tmp_loss *= scaling_factor
-                for key in tmp_losses_dict:
-                    tmp_losses_dict[key] *= scaling_factor
-            # Compute gradients
-            if scaler is not None:
-                scaler.scale(tmp_loss).backward()
+    try:
+        for s_idx, e_idx in idxs:
+            # Process current elements
+            model_outputs = model(
+                input_ids=input_ids[s_idx:e_idx],
+                attention_mask=attention_mask[s_idx:e_idx],
+                labels=labels[s_idx:e_idx],
+                kl_loss_weight=beta,
+                reduction=model.training
+            )
+            # Compute gradients if model is training
+            if model.training:
+                tmp_loss = model_outputs.loss
+                tmp_losses_dict = {
+                    key: model_outputs.loss_function_output[key].cpu().item()
+                    for key in losses_dict
+                }
+                # Scale loss if using gradient accumulation
+                if e_idx - s_idx != mini_batch_size:
+                    scaling_factor = (e_idx - s_idx) / mini_batch_size
+                    tmp_loss *= scaling_factor
+                    for key in tmp_losses_dict:
+                        tmp_losses_dict[key] *= scaling_factor
+                # Compute gradients
+                if scaler is not None:
+                    scaler.scale(tmp_loss).backward()
+                else:
+                    tmp_loss.backward()
+                tmp_loss = tmp_loss.cpu().item()
+                # Update accumulators
+                loss += tmp_loss
+                for key in losses_dict:
+                    losses_dict[key] += tmp_losses_dict[key]
+            # Else update accumulators collect predicted latents
             else:
-                tmp_loss.backward()
-            tmp_loss = tmp_loss.cpu().item()
-            # Update accumulators
-            loss += tmp_loss
-            for key in losses_dict:
-                losses_dict[key] += tmp_losses_dict[key]
-        # Else update accumulators collect predicted latents
+                loss += model_outputs.loss.cpu().tolist()
+                for key in losses_dict:
+                    losses_dict[key] += model_outputs.loss_function_output[key].cpu().tolist()
+                if model.config.unconditioned:
+                    for sample in raw_data[s_idx:e_idx]:
+                        sample['latent'] = '<|unconditioned|>'
+                else:
+                    for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
+                        sample['latent'] = tokenizer.decode(latent)
+    except RuntimeError:
+        logging.error("Run-time error occurred, clearing gradients and cache and lowering in-memory sequences")
+        # Remove gradients computed up to now
+        optimizer.zero_grad()
+        model.zero_grad()
+        # Empty cache
+        torch.cuda.empty_cache()
+        # Update memory failures counter
+        mem_failures -= 1
+        if mem_failures == 0:
+            logging.error("Too many consecutive in-memory failures, reducing permanently memory usage")
+            mem_failures = MAX_MEM_FAILURES
+            corpus_configs['splits'][split]['in_mem'] = max(1, corpus_configs['splits'][split]['in_mem'] // 2)
+        # If the current in-memory elements were already one skip this batch
+        if in_mem == 1:
+            logging.error("Skipping this batch")
+            # Return dummy output for model training
+            if model.training:
+                # Update learning rate and beta
+                lr_scheduler.step()
+                beta_scheduler.step()
+
+                return float('nan'), dict()
+            else:
+                return list(), dict(), list()
+        # Else re-run with lower in-memory sequences
         else:
-            loss += model_outputs.loss.cpu().tolist()
-            for key in losses_dict:
-                losses_dict[key] += model_outputs.loss_function_output[key].cpu().tolist()
-            for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
-                sample['latent'] = tokenizer.decode(latent)
+            return process_mini_batch(split, input_ids, attention_mask, labels, raw_data, in_mem=max(1, in_mem // 2))
     # Update weights model if training
     if model.training:
         # Clip gradient norm
@@ -368,8 +414,9 @@ def process_mini_batch(
             scaler.update()
         else:
             optimizer.step()
-        # Update learning rate
+        # Update learning rate and beta
         lr_scheduler.step()
+        beta_scheduler.step()
         # Reset optimiser and model gradients
         optimizer.zero_grad()
         model.zero_grad()
@@ -390,7 +437,7 @@ def process_evaluation(
         best_validation_score: Optional[float] = None
 ) -> Union[str, Tuple[float, float, float, float]]:
     # Declare global variables
-    global corpora, corpus_loaders, model, model_configs, evaluation_configs
+    global corpora, corpus_loaders, model, model_configs, evaluation_configs, checkpoint_gradient
 
     # Define helper function to call validation
     def improved(latest_value, best_value) -> bool:
@@ -401,8 +448,6 @@ def process_evaluation(
             return latest_value <= best_value  # NLL must decrease for an improvement
     # Current step
     step = step_idx + 1 if step_idx is not None else None
-    # Get number of elements
-    n_elements: int = len(corpora[DataSetSplit(split)])
     # Initialize validation accumulators
     validation_loss: Union[float, List[float]] = list()
     validation_losses_dict: Dict[str, Union[float, List[float]]] = {key: list() for key in LOSS_KEYS_MAPPING}
@@ -420,11 +465,18 @@ def process_evaluation(
         # Validation loss
         validation_loss += tmp_loss
         for key in validation_losses_dict:
-            validation_losses_dict[key] += tmp_losses_dict[key]
-        ppl += [math.exp(nll) for nll in tmp_losses_dict[PPL_NLL_LOSS_KEY]]
-        elbo += tmp_losses_dict[ELBO_OBJECTIVE_KEY]
-        kl_divergence += tmp_losses_dict[KL_DIVERGENCE_LOSS_KEY]
+            validation_losses_dict[key] += tmp_losses_dict.get(key, list())
+        ppl += [math.exp(nll) for nll in tmp_losses_dict.get(PPL_NLL_LOSS_KEY, list())]
+        elbo += tmp_losses_dict.get(ELBO_OBJECTIVE_KEY, list())
+        kl_divergence += tmp_losses_dict.get(KL_DIVERGENCE_LOSS_KEY, list())
         processed_data += processed_mini_batch
+    # Get correct number of elements
+    if len(validation_loss) == 0:
+        n_elements: int = 1
+    elif len(validation_loss) < len(corpora[DataSetSplit(split)]):
+        n_elements: int = len(validation_loss)
+    else:
+        n_elements: int = len(corpora[DataSetSplit(split)])
     # Average score
     validation_loss = sum(validation_loss) / n_elements
     validation_losses_dict = {key: sum(validation_losses_dict[key]) / n_elements for key in validation_losses_dict}
@@ -517,7 +569,11 @@ def process_evaluation(
         )
         if improvement:
             # Save model state dictionary
+            if checkpoint_gradient:
+                model.gradient_checkpointing_disable()
             model.save_pretrained(best_model_checkpoint_path)
+            if checkpoint_gradient:
+                model.gradient_checkpointing_enable()
             # Update best score
             best_validation_score = validation_losses_dict.get(
                 evaluation_configs.get('monitored_metric'), validation_loss
@@ -539,7 +595,7 @@ def process_evaluation(
 
 def fit_model():
     # Declare global variables
-    global optimizer_configs, writer, corpora, corpus_loaders, model_checkpoint_path, best_model_checkpoint_path
+    global optimizer_configs, checkpoint_gradient, writer, corpora, corpus_loaders, model_checkpoint_path, best_model_checkpoint_path
 
     # Define helper function to call validation
     def evaluation_step() -> float:
@@ -617,7 +673,11 @@ def fit_model():
         # Update cls head weights
         model.update_cls_weights()
         # Checkpoint trained model
+        if checkpoint_gradient:
+            model.gradient_checkpointing_disable()
         model.save_pretrained(model_checkpoint_path)
+        if checkpoint_gradient:
+            model.gradient_checkpointing_enable()
         logging.info("Models saved using utilities")
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")

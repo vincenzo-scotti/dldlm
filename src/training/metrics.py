@@ -52,7 +52,7 @@ def get_response_samples(
         **generate_kwargs: Dict,
 ) -> List[Dict]:
     # Sample randomly dialogues if required
-    if n_samples is not None and n_samples > 0:
+    if n_samples is not None and 0 < n_samples < len(labelled_samples):
         labelled_samples = random.sample(labelled_samples, n_samples)
     # For each of the considered samples and for each latent code generate a response
     is_training = model.training
@@ -63,12 +63,19 @@ def get_response_samples(
         for sample in labelled_samples:
             generated_samples: Dict[str, str] = dict()
             prompt = sample['context']
-            for latent in (f'<|latentcode{str(i).zfill(2)}|>' for i in range(model.config.num_styles)):
-                input_ids = tokenizer(prompt + latent, return_tensors='pt').input_ids.to(device)
-                generated_samples[latent] = tokenizer.decode(
+            if model.config.unconditioned:
+                input_ids = tokenizer(prompt, return_tensors='pt').input_ids.to(device)
+                generated_samples['<|unconditioned|>'] = tokenizer.decode(
                     model.generate(input_ids, **generate_kwargs)[0, input_ids.size(-1):].cpu(),
                     skip_special_tokens=True
                 )
+            else:
+                for latent in (f'<|latentcode{str(i).zfill(2)}|>' for i in range(model.config.num_styles)):
+                    input_ids = tokenizer(prompt + latent, return_tensors='pt').input_ids.to(device)
+                    generated_samples[latent] = tokenizer.decode(
+                        model.generate(input_ids, **generate_kwargs)[0, input_ids.size(-1):].cpu(),
+                        skip_special_tokens=True
+                    )
             sample['generated_responses'] = generated_samples
 
     if is_training:

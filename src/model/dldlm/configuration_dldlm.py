@@ -23,6 +23,7 @@ class DLDLMConfig(GPT2Config):
             tf_size: Optional[int] = None,
             init_tf_head: bool = True,
 
+            unconditioned: bool = False,
             context_pdrop: float = 0.5,
             corruption_rate: float = 0.2,
             do_sample_latent: bool = True,
@@ -48,7 +49,9 @@ class DLDLMConfig(GPT2Config):
             kl_loss_weight: float = 1.0,
             kl_loss_threshold: float = -float('inf'),
             behaviour_loss_weight: float = 1.0,
+            behaviour_loss_threshold: float = -float('inf'),
             sampling_loss_weight: float = 1.0,
+            sampling_loss_threshold: float = -float('inf'),
             prior_entropy_loss_weight: float = -1.0,
             posterior_entropy_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
@@ -60,6 +63,7 @@ class DLDLMConfig(GPT2Config):
         self.tf_size: Optional[int] = tf_size
         self.init_tf_head: bool = init_tf_head
         # Latent analysis hyper-parameters and configs
+        self.unconditioned: bool = unconditioned
         self.context_pdrop: float = context_pdrop
         self.corruption_rate: float = corruption_rate
         self.fixed_prior: bool = fixed_prior
@@ -86,7 +90,9 @@ class DLDLMConfig(GPT2Config):
         self.kl_loss_weight: float = kl_loss_weight
         self.kl_loss_threshold: float = kl_loss_threshold
         self.behaviour_loss_weight: float = behaviour_loss_weight
+        self.behaviour_loss_threshold: float = behaviour_loss_threshold
         self.sampling_loss_weight: float = sampling_loss_weight
+        self.sampling_loss_threshold: float = sampling_loss_threshold
         self.prior_entropy_loss_weight: float = prior_entropy_loss_weight
         self.posterior_entropy_loss_weight: float = posterior_entropy_loss_weight
         self.tf_loss_weight: float = tf_loss_weight

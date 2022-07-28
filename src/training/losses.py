@@ -7,11 +7,14 @@ class EvaluationMode(Enum):
 
 
 LOSS_EVALUATION_MODE_MAPPING = {
+    'loss': EvaluationMode.MIN,
     'lm_loss': EvaluationMode.MIN,
     'latent_kl_div_loss': EvaluationMode.MIN,
     'latent_kl_threshold_loss': EvaluationMode.MIN,
     'prior_latent_nll_loss': EvaluationMode.MIN,
+    'prior_latent_nll_threshold_loss': EvaluationMode.MIN,
     'posterior_latent_nll_loss': EvaluationMode.MIN,
+    'posterior_latent_nll_threshold_loss': EvaluationMode.MIN,
     'elbo': EvaluationMode.MAX,
     'prior_dist_entropy': EvaluationMode.MAX,
     'posterior_dist_entropy': EvaluationMode.MIN,

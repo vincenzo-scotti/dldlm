@@ -36,6 +36,8 @@ class DialogueCorpus(Dataset):
             corpus_dir_path: str,
             data_set_split: str,
             tokenizer: DLDLMTokenizer,
+            start_token: Optional[str] = None,
+            stop_token: Optional[str] = None,
             max_context_length: Optional[int] = None,
             parallel_backend: str = 'threading',
             n_jobs: int = -1,
@@ -46,6 +48,9 @@ class DialogueCorpus(Dataset):
         self.corpus_dir_path: str = corpus_dir_path
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
+        # Special tokens to mark start of dialogue and end of turn
+        self.start_token: Optional[str] = start_token if start_token is not None else tokenizer.bos_token
+        self.stop_token: Optional[str] = stop_token if stop_token is not None else tokenizer.eos_token
         # Maximum allowed context length
         self.max_context_length: Optional[int] = max_context_length
         # Data split identifier
@@ -68,7 +73,7 @@ class DialogueCorpus(Dataset):
 
     def _get_dialogue_contexts(self, dialogue_turns: List[str]) -> List[str]:
         # Gather all available context strings
-        context_strings: List[str] = [''] + [turn + '\n\n' for turn in dialogue_turns[:-1]]
+        context_strings: List[str] = [self.start_token] + [turn + self.stop_token for turn in dialogue_turns[:-1]]
         # If a limit on the context is given cut it
         if self.max_context_length is not None:
             # Accumulator for contexts

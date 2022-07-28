@@ -25,9 +25,8 @@ def log_word_counts(
 ):
     text = f"{sub_tag}\n" if sub_tag is not None else str()
     for key in data:
-        text += (f"\tLatent: {int(group_id_regex.search(key).group(1))}\n\t\t"
-                 if sub_tag is not None else
-                 f"Latent: {int(group_id_regex.search(key).group(1))}\n\t") + \
+        latent = int(group_id_regex.search(key).group(1)) if group_id_regex.match(key) else None
+        text += (f"\tLatent: {latent}\n\t\t" if sub_tag is not None else f"Latent: {latent}\n\t") + \
                 ("\n\t\t" if sub_tag is not None else "\n\t").join(
                     f"{item}: {count}" for item, count in data[key].most_common(top_n)
                 ) + "\n"
@@ -69,7 +68,8 @@ def plot_word_counts(
             counts = tuple()
         ax = axes[key_idx]
         ax.barh(items, counts, height=0.7)
-        ax.set_title(f"Latent: {int(group_id_regex.search(key).group(1))}", fontdict={"fontsize": 20})
+        latent = int(group_id_regex.search(key).group(1)) if group_id_regex.match(key) else None
+        ax.set_title(f"Latent: {latent}", fontdict={"fontsize": 20})
         ax.invert_yaxis()
         ax.tick_params(axis="both", which="major", labelsize=20)
         for i in "top right left".split():
@@ -99,7 +99,11 @@ def log_traces(
         dest_dir: Optional[str] = None,
         file_name: Optional[str] = None
 ):
-    text = "\n".join(", ".join(f'{group_id_regex.search(elem).group(1)}' for elem in trace) for trace in data)
+    text = "\n".join(
+        ", ".join(
+            f'{group_id_regex.search(elem).group(1) if group_id_regex.match(elem) else None}'
+            for elem in trace)
+        for trace in data)
 
     if tb_writer is not None:
         tag = f'Latent action traces/{sub_tag}' if sub_tag is not None else 'Latent action traces'
@@ -133,7 +137,7 @@ def plot_traces(
     source_nodes = [node_encoder[node] for node in source_nodes]
     target_nodes = [node_encoder[node] for node in target_nodes]
 
-    labels = [str(group_id_regex.search(lbl).group(1)) for _, lbl in node_decoder]
+    labels = [str(group_id_regex.search(lbl).group(1) if group_id_regex.match(lbl) else None) for _, lbl in node_decoder]
     n_labels = len(set(labels))
     cmap = plt.get_cmap('Spectral')
     colors_dict = {lbl: cols.rgb2hex(cmap(i / n_labels)) for i, lbl in enumerate(set(labels))}
@@ -175,8 +179,8 @@ def log_generated_response(
     def str_sample(**kwargs):
         return f"Corpus:\n\t{kwargs['corpus']}, Split: {kwargs['split']}, Dialogue idx: {kwargs['conversation_idx']}\n\n" + \
                f"Prompted context:\n\t{repr(kwargs['context'])}\n\n" + \
-               "Generated responses:\n\t" + "\n\t".join(f"Latent {group_id_regex.search(latent).group(1)}: {kwargs['generated_responses'][latent]}" for latent in kwargs['generated_responses']) + "\n\n" + \
-               f"Original response:\n\tLatent {group_id_regex.search(kwargs['latent']).group(1)}: {kwargs['response']}"
+               "Generated responses:\n\t" + "\n\t".join(f"Latent {group_id_regex.search(latent).group(1) if group_id_regex.match(latent) else None}: {kwargs['generated_responses'][latent]}" for latent in kwargs['generated_responses']) + "\n\n" + \
+               f"Original response:\n\tLatent {group_id_regex.search(kwargs['latent']).group(1)  if group_id_regex.match(kwargs['latent']) else None}: {kwargs['response']}"
 
     text = "\n\n".join(str_sample(**sample) for sample in data)
 
@@ -204,7 +208,8 @@ def log_latents_count(
 ):
     text = (f"{sub_tag}\n\t" if sub_tag is not None else str()) + \
            ("\n\t" if sub_tag is not None else "\n").join(
-               f"Latent {group_id_regex.search(latent).group(1)}: {count}" for latent, count in data.items()
+               f"Latent {group_id_regex.search(latent).group(1) if group_id_regex.match(latent) else None}: {count}"
+               for latent, count in data.items()
            )
 
     if tb_writer is not None:

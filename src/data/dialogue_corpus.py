@@ -40,7 +40,7 @@ def get_word_counts(s: str) -> Counter:
 
 # TODO move here context cutting, it shouldn't be part of the corpora loaders
 # TODO add class for fine tuning
-class PreTrainingCorpus(Dataset):
+class DLDLMCorpus(Dataset):
     def __init__(
             self,
             corpora_dir_path: str,
@@ -51,12 +51,15 @@ class PreTrainingCorpus(Dataset):
             corpus_list: Optional[List[str]] = None,
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
+            latent: bool = True,
             count_word_tokens: bool = False,
             **kwargs
     ):
-        super(PreTrainingCorpus, self).__init__()
+        super(DLDLMCorpus, self).__init__()
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
+        # Whether to use the latent codes
+        self.latent = latent
         # Max response length
         self.max_response_length: Optional[int] = max_response_length
         # Data split identifier
@@ -126,15 +129,25 @@ class PreTrainingCorpus(Dataset):
 
     def collate(self, mini_batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[Dict]]:
         # Encode context
+        padding_side = self.tokenizer.padding_side
+        self.tokenizer.padding_side = 'left'
         context_encodings = self.tokenizer(
             [sample['context'] for sample in mini_batch], padding=True, return_tensors='pt'
         )
+        self.tokenizer.padding_side = padding_side
         # Encode response
-        response_encodings = self.tokenizer(
-            ['<|prior|>' + sample['response'] + '<|posterior|>' for sample in mini_batch],
-            padding=True,
-            return_tensors='pt'
-        )
+        if self.latent:
+            response_encodings = self.tokenizer(
+                ['<|prior|>' + sample['response'] + '<|posterior|>' for sample in mini_batch],
+                padding=True,
+                return_tensors='pt'
+            )
+        else:
+            response_encodings = self.tokenizer(
+                [sample['response'] + self.tokenizer.eos_token for sample in mini_batch],
+                padding=True,
+                return_tensors='pt'
+            )
         # Prepare inputs
         if self.max_response_length is not None:
             input_ids = torch.hstack(
