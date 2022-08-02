@@ -11,7 +11,7 @@ dldlm:
     pretrained: &pretrained gpt2-large
     kwargs:
       n_styles: &n_styles 16
-      tf_size: 50256
+      tf_size: 0
       init_tf_head: true
       context_pdrop: 0.0
       corruption_rate: 0.0
@@ -22,7 +22,7 @@ dldlm:
       behaviour_loss_threshold: 0.125
       sampling_loss_weight: 0.02
       sampling_loss_threshold: 0.125
-      tf_loss: false #
+      tf_loss: false
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -77,7 +77,7 @@ data:
       in_mem: 2
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 12
+      mini_batch_size: &eval_mini_batch_size 16
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:

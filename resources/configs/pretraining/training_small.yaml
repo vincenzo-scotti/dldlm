@@ -10,7 +10,7 @@ dldlm:
     pretrained: &pretrained gpt2
     kwargs:
       n_styles: &n_styles 8
-      tf_size: 50256
+      tf_size: 0
       init_tf_head: true
       context_pdrop: 0.0
       corruption_rate: 0.0

@@ -446,7 +446,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     (posterior_logits if posterior_logits is not None else prior_logits), hard=True
                 )
                 latent_ids = torch.argmax(latent_ids_sparse, dim=-1).unsqueeze(-1)
-            latent_embeds = torch.einsum('vh, bv -> bh', self.transformer.wte.weight, latent_ids_sparse).unsqueeze(1)
+            latent_embeds = torch.einsum('vh, bv -> bh', self.transformer.wte.weight, latent_ids_sparse)  # .unsqueeze(1)
         # Else simply extract the ids of the latent
         else:
             if kwargs.get('do_sample_latent', self.config.do_sample_latent):
@@ -482,7 +482,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # If model is training process latent embedding and then the rest of the sequence
         if self.training and not kwargs.get('detach_posterior', self.config.detach_posterior):
             input_embeds = self.transformer.wte(input_ids)
-            input_embeds[prior_token_id_idxs] = latent_embeds
+            input_embeds[prior_token_id_idxs] = latent_embeds.type(input_embeds.dtype)  # Needs explicit casting in case AMP is active
             input_ids = None
         else:
             input_embeds = None
@@ -785,7 +785,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             **kwargs,
     ):
         # Get output preparation flags
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
+        use_cache = (use_cache if use_cache is not None else self.config.use_cache) and not (self.transformer.gradient_checkpointing and self.training)
         output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict

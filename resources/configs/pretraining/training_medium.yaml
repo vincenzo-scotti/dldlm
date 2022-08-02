@@ -10,7 +10,7 @@ dldlm:
     pretrained: &pretrained gpt2-medium
     kwargs:
       n_styles: &n_styles 16
-      tf_size: 50256
+      tf_size: 0
       init_tf_head: true
       context_pdrop: 0.0
       corruption_rate: 0.0
@@ -76,7 +76,7 @@ data:
       in_mem: 4
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 16
+      mini_batch_size: &eval_mini_batch_size 20
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:

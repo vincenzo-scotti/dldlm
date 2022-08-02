@@ -10,19 +10,18 @@ dldlm:
     pretrained: &pretrained distilgpt2
     kwargs:
       n_styles: &n_styles 8
-      tf_size: 50256
-      init_tf_head: false
+      tf_size: 0
+      init_tf_head: true
       context_pdrop: 0.0
       corruption_rate: 0.0
-      # do_gibbs_sampling: true
       kl_loss: false
       behaviour_loss: true
       sampling_loss: true
-      behaviour_loss_weight: 0.001
-      # prior_entropy_loss: true
-      # posterior_entropy_loss: true
-      # prior_entropy_loss_weight: -0.1
-      tf_loss: false
+      behaviour_loss_weight: 0.0002
+      behaviour_loss_threshold: 0.25
+      sampling_loss_weight: 0.02
+      sampling_loss_threshold: 0.25
+      tf_loss: false #
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -36,22 +35,21 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-6
-  n_epochs: 15
+    lr: &lr 5.e-5
+  n_epochs: 10
   max_gradient_norm: 1.0
 
 lr_scheduler:
-  lr_start: *lr
-  lr_stop: *lr
-  warmup: 0
+  lr: *lr
+  lr_start: 0.0
+  lr_stop: 0.0
+  warmup: 4096
 
-beta_scheduler:
-  cycles: 0
-  warmup: 0
+beta_scheduler: {}
 
 evaluation:
   validation_period: 2048
-  monitored_metric: prior_latent_nll_loss
+  monitored_metric: loss
   metrics:
     word_count:
       top_n: 20
@@ -74,11 +72,11 @@ data:
     count_word_tokens: true
   splits:
     train:
-      mini_batch_size: 64
-      in_mem: 6
+      mini_batch_size: 3
+      in_mem: 2
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 64
+      mini_batch_size: &eval_mini_batch_size 1
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:

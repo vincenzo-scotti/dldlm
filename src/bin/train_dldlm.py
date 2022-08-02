@@ -342,7 +342,10 @@ def process_mini_batch(
             if model.training:
                 tmp_loss = model_outputs.loss
                 tmp_losses_dict = {
-                    key: model_outputs.loss_function_output[key].cpu().item()
+                    key: (
+                        model_outputs.loss_function_output[key].cpu().item()
+                        if key in model_outputs.loss_function_output else float('nan')
+                    )
                     for key in losses_dict
                 }
                 # Scale loss if using gradient accumulation
@@ -365,14 +368,20 @@ def process_mini_batch(
             else:
                 loss += model_outputs.loss.cpu().tolist()
                 for key in losses_dict:
-                    losses_dict[key] += model_outputs.loss_function_output[key].cpu().tolist()
+                    losses_dict[key] += (
+                        model_outputs.loss_function_output[key].cpu().tolist()
+                        if key in model_outputs.loss_function_output else list()
+                    )
                 if model.config.unconditioned:
                     for sample in raw_data[s_idx:e_idx]:
                         sample['latent'] = '<|unconditioned|>'
                 else:
                     for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
                         sample['latent'] = tokenizer.decode(latent)
-    except RuntimeError:
+    except RuntimeError as e:
+        # Check whether it is an out-of-memory error
+        if 'CUDA error: out of memory' not in str(e):
+            raise e
         logging.error("Run-time error occurred, clearing gradients and cache and lowering in-memory sequences")
         # Remove gradients computed up to now
         optimizer.zero_grad()
