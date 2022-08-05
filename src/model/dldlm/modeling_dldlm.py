@@ -372,7 +372,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Past key values
         if use_cache and past_key_values is not None:
             prior_past_key_values = tuple(
-                (k[:, :, :response_start_idx], k[:, :, :response_start_idx]) for (k, v) in past_key_values
+                (k[:, :, :response_start_idx], v[:, :, :response_start_idx]) for (k, v) in past_key_values
             )
             posterior_past_key_values = past_key_values
         else:
@@ -462,7 +462,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Update inputs and memories
         # Already processed context tokens
         past_key_values = tuple(
-            (k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
+            (k[:, :, :response_start_idx - 1], v[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
         ) if response_start_idx > 1 else None
         # Input response tokens
         input_ids = input_ids.clone()
@@ -569,7 +569,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     use_cache=True,
                 )
                 # Delete latest token from past
-                past = tuple((k[:, :, :response_start_idx - 1], k[:, :, :response_start_idx - 1]) for (k, v) in past)
+                past = tuple((k[:, :, :response_start_idx - 1], v[:, :, :response_start_idx - 1]) for (k, v) in past)
                 # Compute latent logits
                 # Prior logits
                 prior_logits = self.lm_head(prior_last_hidden_state)
