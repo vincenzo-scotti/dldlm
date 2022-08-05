@@ -11,15 +11,15 @@ from typing import Optional, Union, Tuple, List, Dict, Pattern
 import random
 import math
 import numpy as np
-from training import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
-from training import get_latent_word_counts, get_traces, get_latents_count, get_response_samples
-from training import log_word_counts, log_traces, log_latents_count, log_generated_response
-from training import plot_word_counts, plot_traces
+from misc import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
+from misc import get_latent_word_counts, get_traces, get_latents_count, get_response_samples
+from misc import log_word_counts, log_traces, log_latents_count, log_generated_response
+from misc import plot_word_counts, plot_traces
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.cuda.amp import autocast, GradScaler
-from training import LinearLR, BetaCyclicalAnnealer
+from misc import LinearLR, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
 from data import DLDLMCorpus, DataSetSplit
@@ -165,7 +165,7 @@ def init_environment(config_file_path: str):
     # Init logging
     logging.basicConfig(filename=log_file_path, level=configs['log_level'])
     # Start Logging info
-    logging.info(f"{configs['experiment_series']} training script started")
+    logging.info(f"{configs['experiment_series']} misc script started")
     logging.info(f"Current experiment directories created at '{current_experiment_dir_path}'")
     if log_file_path is not None:
         logging.info(f"Current experiment log created at '{log_file_path}'")
@@ -283,7 +283,7 @@ def init_optimisation_tools():
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
-    # Get total number of training steps
+    # Get total number of misc steps
     steps = (len(corpus_loaders[DataSetSplit('train')]) * optimizer_configs['n_epochs']) + 1
     # Update learning rate scheduler configs with missing info
     lr_scheduler_configs['lr_steps'] = steps
@@ -338,7 +338,7 @@ def process_mini_batch(
                 kl_loss_weight=beta,
                 reduction=model.training
             )
-            # Compute gradients if model is training
+            # Compute gradients if model is misc
             if model.training:
                 tmp_loss = model_outputs.loss
                 tmp_losses_dict = {
@@ -380,7 +380,7 @@ def process_mini_batch(
                         sample['latent'] = tokenizer.decode(latent)
     except RuntimeError as e:
         # Check whether it is an out-of-memory error
-        if 'CUDA error: out of memory' not in str(e):
+        if 'out of memory' not in str(e):
             raise e
         logging.error("Run-time error occurred, clearing gradients and cache and lowering in-memory sequences")
         # Remove gradients computed up to now
@@ -397,7 +397,7 @@ def process_mini_batch(
         # If the current in-memory elements were already one skip this batch
         if in_mem == 1:
             logging.error("Skipping this batch")
-            # Return dummy output for model training
+            # Return dummy output for model misc
             if model.training:
                 # Update learning rate and beta
                 lr_scheduler.step()
@@ -409,7 +409,7 @@ def process_mini_batch(
         # Else re-run with lower in-memory sequences
         else:
             return process_mini_batch(split, input_ids, attention_mask, labels, raw_data, in_mem=max(1, in_mem // 2))
-    # Update weights model if training
+    # Update weights model if misc
     if model.training:
         # Clip gradient norm
         if optimizer_configs['max_gradient_norm'] > 0.0:
@@ -628,9 +628,9 @@ def fit_model():
         logging.info(
             f"Validation completed - PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
         )
-        # Set model back in training mode
+        # Set model back in misc mode
         model.train()
-        logging.info("Model set in training mode")
+        logging.info("Model set in misc mode")
 
         return best_score
 
@@ -644,12 +644,12 @@ def fit_model():
     validation_idx: int = 0
     # Initialize best validation score
     best_validation_score: float = -float('inf')
-    # Set model in training mode
+    # Set model in misc mode
     model.train()
     # Train and validation process
     # Get current date and time
     start_time: datetime = datetime.now()
-    # Log start of training
+    # Log start of misc
     logging.info(f"Training started - Current date and time {start_time}")
     # Iterate over epochs
     for epoch in range(n_epochs):
@@ -664,7 +664,7 @@ def fit_model():
                 validation_idx += 1
             # Process current mini-batch
             mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
-            # Log training info (mini-batch level)
+            # Log misc info (mini-batch level)
             # Tensorboard
             writer.add_scalar('Loss/Training', mini_batch_loss, step_idx + 1)
             writer.add_scalars(
@@ -692,10 +692,10 @@ def fit_model():
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
     # Run final validation step
     best_validation_score = evaluation_step()
-    # Close training
+    # Close misc
     # Get current date and time
     end_time: datetime = datetime.now()
-    # Log end of training
+    # Log end of misc
     logging.info(f"Training finished - Current date and time {end_time}")
     logging.info(f"Elapsed time {end_time - start_time}")
     # Restore best validation model weights
@@ -758,7 +758,7 @@ def main(args: Namespace):
     fit_model()
     # Testing process
     evaluate_model()
-    # Clean training output if any
+    # Clean misc output if any
     clean_environment()
 
     return 0
