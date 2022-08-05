@@ -428,7 +428,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     ):
         # Decoding step
         # Latent decoding step
-        # If model is training process latent embedding and then the rest of the sequence
+        # If model is misc process latent embedding and then the rest of the sequence
         if self.training:
             # Compute latent embedding
             # If doing gibbs sampling for fine tuning sample from original distribution
@@ -479,7 +479,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Substitute latent analysis tokens
         input_ids[prior_token_id_idxs] = latent
         input_ids[posterior_token_id_idxs] = self.config.eos_token_id
-        # If model is training process latent embedding and then the rest of the sequence
+        # If model is misc process latent embedding and then the rest of the sequence
         if self.training and not kwargs.get('detach_posterior', self.config.detach_posterior):
             input_embeds = self.transformer.wte(input_ids)
             input_embeds[prior_token_id_idxs] = latent_embeds.type(input_embeds.dtype)  # Needs explicit casting in case AMP is active
@@ -631,7 +631,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             training: bool = True,
             inplace: bool = False
     ) -> torch.LongTensor:
-        # Check if it's training or not
+        # Check if it's misc or not
         if training and p > 0.0:
             # Create corruption mask
             corrupted_attention_mask = torch.zeros_like(attention_mask)
@@ -656,7 +656,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             training: bool = True,
             inplace: bool = False
     ) -> torch.LongTensor:
-        # Check if it's training or not
+        # Check if it's misc or not
         if training and p > 0.0:
             # Boolean mask to identify the context tokens
             context_mask = torch.zeros_like(attention_mask)
