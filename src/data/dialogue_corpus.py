@@ -48,6 +48,7 @@ class DLDLMCorpus(Dataset):
             data_set_split: str,
             cache_dir_path: str,
             *args,
+            corpus_prefix: str = 'pretraining_corpus',
             corpus_list: Optional[List[str]] = None,
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
@@ -65,7 +66,7 @@ class DLDLMCorpus(Dataset):
         # Data split identifier
         self.data_set_split: DataSetSplit = DataSetSplit(data_set_split)
         # Path to corpus data frame
-        self.corpus_cache_file_path: str = os.path.join(cache_dir_path, f'pretraining_corpus_{data_set_split}.pbz2')
+        self.corpus_cache_file_path: str = os.path.join(cache_dir_path, f'{corpus_prefix}_{data_set_split}.pbz2')
         # Data
         self.data: List[Dict]
 

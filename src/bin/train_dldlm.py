@@ -643,7 +643,11 @@ def fit_model():
     step_idx: int = 0
     validation_idx: int = 0
     # Initialize best validation score
-    best_validation_score: float = -float('inf')
+    eval_mode = LOSS_EVALUATION_MODE_MAPPING.get(evaluation_configs.get('monitored_metric'), EvaluationMode.MIN)
+    if eval_mode == EvaluationMode.MAX:
+        best_validation_score: float = -float('inf')
+    else:
+        best_validation_score: float = float('inf')
     # Set model in misc mode
     model.train()
     # Train and validation process
