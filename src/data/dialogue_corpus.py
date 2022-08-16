@@ -14,14 +14,17 @@ import torch
 from torch.utils.data import Dataset
 from .utils import DataSetSplit, IGNORE_INDEX
 from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
+from .corpora import Hope, CounsellingAndPsychotherapyCorpus
 
 from model import DLDLMTokenizer
 
 from typing import List, Tuple, Dict, Optional, Set
 
 CORPORA: Dict = {
+    CounsellingAndPsychotherapyCorpus.IDENTIFIER: CounsellingAndPsychotherapyCorpus,
     DailyDialog.IDENTIFIER: DailyDialog,
     EmpatheticDialogues.IDENTIFIER: EmpatheticDialogues,
+    Hope.IDENTIFIER: Hope,
     PersonaChat.IDENTIFIER: PersonaChat,
     WizardOfWikipedia.IDENTIFIER: WizardOfWikipedia,
 }
@@ -30,12 +33,16 @@ nltk.download('stopwords')
 nltk.download('punkt')
 STOP_WORDS: Set[str] = set(stopwords.words('english')) | spacy.load('en_core_web_sm').Defaults.stop_words
 PUNCTUATION: Set[str] = set("[!\"#$%&()*+,-./:;<=>?@[]\\^`{|}~_']") | {'...', '``', '\'\'', '--'}
+CUSTOM_STOP_WORDS: Set[str] = set()
 
 
-def get_word_counts(s: str) -> Counter:
-    return Counter(
-        w.lower() for w in word_tokenize(s) if w.lower() not in STOP_WORDS | PUNCTUATION
-    )
+def get_word_counts(s: str, remove_stop_words: bool = True) -> Counter:
+    if remove_stop_words:
+        return Counter(
+            w.lower() for w in word_tokenize(s) if w.lower() not in STOP_WORDS | PUNCTUATION | CUSTOM_STOP_WORDS
+        )
+    else:
+        return Counter(w.lower() for w in word_tokenize(s))
 
 
 # TODO move here context cutting, it shouldn't be part of the corpora loaders
@@ -54,6 +61,7 @@ class DLDLMCorpus(Dataset):
             max_response_length: Optional[int] = None,
             latent: bool = True,
             count_word_tokens: bool = False,
+            remove_stopwords: bool = True,
             **kwargs
     ):
         super(DLDLMCorpus, self).__init__()
@@ -86,8 +94,9 @@ class DLDLMCorpus(Dataset):
             # Else simply save the provided list
             else:
                 self.corpus_list: List[str] = corpus_list
-            # Word count flag
+            # Word count flags
             self.count_word_tokens: bool = count_word_tokens
+            self.remove_stopwords: bool = remove_stopwords
             # Load all corpora and generate cache
             self._generate_data_cache(*args, **kwargs)
         # Else simply load the cache
@@ -118,7 +127,7 @@ class DLDLMCorpus(Dataset):
         # Count word tokens in needed
         if self.count_word_tokens:
             for sample in self.data:
-                sample['word_counts'] = get_word_counts(sample['response'])
+                sample['word_counts'] = get_word_counts(sample['response'], remove_stop_words=self.remove_stopwords)
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
             pickle.dump(self.data, f)

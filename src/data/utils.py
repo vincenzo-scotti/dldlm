@@ -1,3 +1,4 @@
+import re
 from enum import Enum
 from torch.utils.data import Dataset
 
@@ -102,8 +103,14 @@ class DialogueCorpus(Dataset):
 
         return dialogue_context_strings
 
-    def _preprocess_text(self, *args, **kwargs):
-        raise NotImplementedError()
+    def _preprocess_text(self, text: str) -> str:
+        for u_code_sym, replace_sym in self.UNICODE_SWITCH_LIST:
+            text = text.replace(u_code_sym, replace_sym)  # Taken from ParlAI preprocessing
+        text = re.sub(r'\.(\w)', r' . \1', text)  # Taken from ParlAI preprocessing
+        text = re.sub('[ \t\n]+', ' ', text)
+        text = text.strip()
+
+        return text
 
     def _preprocess_dialogue(self, *args, **kwargs):
         raise NotImplementedError()
