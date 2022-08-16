@@ -29,7 +29,6 @@ from model import DLDLMTokenizer, DLDLMFullModel
 # TODO add warm restart
 
 # Constants
-MAX_MEM_FAILURES = 16
 PPL_NLL_LOSS_KEY = 'lm_loss'
 ELBO_OBJECTIVE_KEY = 'elbo'
 KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
@@ -55,7 +54,8 @@ MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
 # Variables to control model and optimization parameters
 # Environment
 random_seed: Optional[int]
-mem_failures: int = MAX_MEM_FAILURES
+max_mem_failures: int = 16
+mem_failures: int
 device: torch.device
 mixed_precision: bool = True
 checkpoint_gradient: bool = False
@@ -73,10 +73,10 @@ corpus_loaders: Dict[DataSetSplit, DataLoader] = dict()
 optimizer_configs: Dict
 optimizer: Optimizer
 scaler: Optional[GradScaler] = None
-lr_scheduler_configs: Dict
-lr_scheduler: LinearLR
-beta_scheduler_configs: Dict
-beta_scheduler: BetaCyclicalAnnealer
+lr_scheduler_configs: Optional[Dict] = None
+lr_scheduler: Optional[LinearLR] = None
+beta_scheduler_configs: Optional[Dict] = None
+beta_scheduler: Optional[BetaCyclicalAnnealer] = None
 evaluation_configs: Dict
 # Experiment dir path
 latent_count_txt_dir_path: str
@@ -93,7 +93,7 @@ best_model_checkpoint_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, checkpoint_gradient, writer
+    global random_seed, device, mixed_precision, checkpoint_gradient, writer, max_mem_failures, mem_failures
     global model_configs, tokenizer_configs, corpus_configs, \
         optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
@@ -191,12 +191,15 @@ def init_environment(config_file_path: str):
     # Check for gradient checkpointing
     checkpoint_gradient = configs.get('checkpoint_gradient', checkpoint_gradient)
     logging.info(f"Gradient checkpointing {'enabled' if checkpoint_gradient else 'disabled'}")
+    # Mem losses
+    max_mem_failures = mem_failures = configs.get('checkpoint_gradient', max_mem_failures)
+    logging.info(f"Maximum memory failures set to {max_mem_failures}")
     # Load remaining configs
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
     optimizer_configs = configs['optimizer']
-    lr_scheduler_configs = configs['lr_scheduler']
-    beta_scheduler_configs = configs['beta_scheduler']
+    lr_scheduler_configs = configs.get('lr_scheduler')
+    beta_scheduler_configs = configs.get('beta_scheduler')
     evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
@@ -285,21 +288,24 @@ def init_optimisation_tools():
     logging.info("Optimiser instantiated")
     # Get total number of misc steps
     steps = (len(corpus_loaders[DataSetSplit('train')]) * optimizer_configs['n_epochs']) + 1
-    # Update learning rate scheduler configs with missing info
-    lr_scheduler_configs['lr_steps'] = steps
+    # If using LR scheduling create instance of scheduler
+    if lr_scheduler_configs:
+        # Update learning rate scheduler configs with missing info
+        lr_scheduler_configs['lr_steps'] = steps
+        # Create learning rate scheduler instance
+        lr_scheduler = LinearLR(optimizer, **lr_scheduler_configs)
+        logging.info("Learning rate scheduler instantiated")
+    # If using LR scheduling create instance of scheduler
+    if beta_scheduler_configs:
+        # Create beta scheduler
+        beta_scheduler = BetaCyclicalAnnealer(steps, **beta_scheduler_configs)
+        logging.info("Beta cyclical annealing scheduler instantiated")
     # Create scaler if using mixed precision
     if mixed_precision:
         scaler = GradScaler()
         logging.info("Gradient scaler for mixed precision instantiated")
-    # Create learning rate scheduler instance
-    lr_scheduler = LinearLR(optimizer, **lr_scheduler_configs)
-    logging.info("Learning rate scheduler instantiated")
-    # Create beta scheduler
-    beta_scheduler = BetaCyclicalAnnealer(steps, **beta_scheduler_configs)
-    logging.info("Beta cyclical annealing scheduler instantiated")
 
 
-@autocast(enabled=mixed_precision)
 def process_mini_batch(
         split: str,
         input_ids: torch.LongTensor,  # Shape (batch_size, )
@@ -307,7 +313,7 @@ def process_mini_batch(
         labels: torch.LongTensor,  # Shape (batch_size, response_length)
         raw_data: List[Dict],
         in_mem: Optional[int] = None
-) -> Union[Tuple[float, Dict[str, float]], Tuple[List[float], Dict[str, List[float]], List[Dict]]]:
+) -> Union[Tuple[torch.Tensor, Dict[str, torch.Tensor]], Tuple[torch.Tensor, Dict[str, torch.Tensor], List[Dict]]]:
     # Declare global variables
     global mem_failures, corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
     global latent_count_txt_dir_path, current_experiment_dir_path, count_plots_dir_path, \
@@ -316,96 +322,106 @@ def process_mini_batch(
     mini_batch_size: int = len(input_ids)
     in_mem: int = in_mem if in_mem is not None else corpus_configs['splits'][split]['in_mem']
     # Create accumulators
-    loss: Union[float, List[float]] = 0.0 if model.training else list()
-    losses_dict: Dict[str, Union[float, List[float]]] = {
-        key: 0.0 if model.training else list() for key in LOSS_KEYS_MAPPING
+    loss: torch.tensor = torch.tensor(0.0, device=device) if model.training else torch.empty(0, device=device)
+    losses_dict: Dict[str, torch.tensor] = {
+        key: torch.tensor(0.0, device=device) if model.training else torch.empty(0, device=device)
+        for key in LOSS_KEYS_MAPPING
     }
     # Move tensors to device
     input_ids = input_ids.to(device)
     attention_mask = attention_mask.to(device)
     labels = labels.to(device)
     # Beta scaling factor
-    beta = beta_scheduler.get_beta() if model.training else 1.0
+    beta = beta_scheduler.get_beta() if model.training and beta_scheduler is not None else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
     try:
         for s_idx, e_idx in idxs:
-            # Process current elements
-            model_outputs = model(
-                input_ids=input_ids[s_idx:e_idx],
-                attention_mask=attention_mask[s_idx:e_idx],
-                labels=labels[s_idx:e_idx],
-                kl_loss_weight=beta,
-                reduction=model.training
-            )
+            with torch.autocast(device.type, enabled=mixed_precision):
+                # Process current elements
+                model_outputs = model(
+                    input_ids=input_ids[s_idx:e_idx],
+                    attention_mask=attention_mask[s_idx:e_idx],
+                    labels=labels[s_idx:e_idx],
+                    kl_loss_weight=beta,
+                    reduction=model.training
+                )
+                # Scale losses if model model is training
+                if model.training:
+                    tmp_loss = model_outputs.loss
+                    tmp_losses_dict = {
+                        key: model_outputs.loss_function_output.get(key, torch.tensor(0.0, device=device))
+                        for key in losses_dict
+                    }
+                    # Scale loss if using gradient accumulation
+                    if e_idx - s_idx != mini_batch_size:
+                        scaling_factor = (e_idx - s_idx) / mini_batch_size
+                        tmp_loss *= scaling_factor
+                        for key in tmp_losses_dict:
+                            tmp_losses_dict[key] *= scaling_factor
             # Compute gradients if model is misc
             if model.training:
-                tmp_loss = model_outputs.loss
-                tmp_losses_dict = {
-                    key: (
-                        model_outputs.loss_function_output[key].cpu().item()
-                        if key in model_outputs.loss_function_output else float('nan')
-                    )
-                    for key in losses_dict
-                }
-                # Scale loss if using gradient accumulation
-                if e_idx - s_idx != mini_batch_size:
-                    scaling_factor = (e_idx - s_idx) / mini_batch_size
-                    tmp_loss *= scaling_factor
-                    for key in tmp_losses_dict:
-                        tmp_losses_dict[key] *= scaling_factor
                 # Compute gradients
                 if scaler is not None:
                     scaler.scale(tmp_loss).backward()
                 else:
                     tmp_loss.backward()
-                tmp_loss = tmp_loss.cpu().item()
                 # Update accumulators
-                loss += tmp_loss
+                loss += tmp_loss.detach()
                 for key in losses_dict:
-                    losses_dict[key] += tmp_losses_dict[key]
+                    losses_dict[key] += tmp_losses_dict[key].detach()
             # Else update accumulators collect predicted latents
             else:
-                loss += model_outputs.loss.cpu().tolist()
+                loss = torch.cat([loss, model_outputs.loss])
                 for key in losses_dict:
-                    losses_dict[key] += (
-                        model_outputs.loss_function_output[key].cpu().tolist()
-                        if key in model_outputs.loss_function_output else list()
-                    )
+                    losses_dict[key] = torch.cat([
+                        losses_dict[key],
+                        model_outputs.loss_function_output.get(key, torch.empty(0, device=device))
+                        # if key in model_outputs.loss_function_output
+                        # else torch.empty(0, device=device)
+                    ])
                 if model.config.unconditioned:
                     for sample in raw_data[s_idx:e_idx]:
                         sample['latent'] = '<|unconditioned|>'
                 else:
-                    for sample, latent in zip(raw_data[s_idx:e_idx], model_outputs.latent.cpu().tolist()):
-                        sample['latent'] = tokenizer.decode(latent)
+                    for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
+                        sample['latent'] = model_outputs.latent[idx].squeeze()  # tokenizer.decode(latent)
     except RuntimeError as e:
         # Check whether it is an out-of-memory error
         if 'out of memory' not in str(e):
             raise e
         logging.error("Run-time error occurred, clearing gradients and cache and lowering in-memory sequences")
         # Remove gradients computed up to now
-        optimizer.zero_grad()
-        model.zero_grad()
+        for param in model.parameters():
+            param.grad = None
         # Empty cache
         torch.cuda.empty_cache()
         # Update memory failures counter
         mem_failures -= 1
         if mem_failures == 0:
             logging.error("Too many consecutive in-memory failures, reducing permanently memory usage")
-            mem_failures = MAX_MEM_FAILURES
+            mem_failures = max_mem_failures
             corpus_configs['splits'][split]['in_mem'] = max(1, corpus_configs['splits'][split]['in_mem'] // 2)
         # If the current in-memory elements were already one skip this batch
         if in_mem == 1:
             logging.error("Skipping this batch")
-            # Return dummy output for model misc
+            # Generate dummy output
+            dummy_loss: torch.tensor = torch.tensor(float('nan'), device=device) if model.training else torch.empty(0, device=device)
+            dummy_losses_dict: Dict[str, torch.tensor] = {
+                key: torch.tensor(float('nan'), device=device) if model.training else torch.empty(0, device=device)
+                for key in LOSS_KEYS_MAPPING
+            }
+            # Return dummy output
             if model.training:
                 # Update learning rate and beta
-                lr_scheduler.step()
-                beta_scheduler.step()
+                if lr_scheduler is not None:
+                    lr_scheduler.step()
+                if beta_scheduler is not None:
+                    beta_scheduler.step()
 
-                return float('nan'), dict()
+                return dummy_loss, dummy_losses_dict
             else:
-                return list(), dict(), list()
+                return dummy_loss, dummy_losses_dict, list()
         # Else re-run with lower in-memory sequences
         else:
             return process_mini_batch(split, input_ids, attention_mask, labels, raw_data, in_mem=max(1, in_mem // 2))
@@ -424,11 +440,13 @@ def process_mini_batch(
         else:
             optimizer.step()
         # Update learning rate and beta
-        lr_scheduler.step()
-        beta_scheduler.step()
-        # Reset optimiser and model gradients
-        optimizer.zero_grad()
-        model.zero_grad()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
+        if beta_scheduler is not None:
+            beta_scheduler.step()
+        # Reset optimiser and model gradients  # Taken from
+        for param in model.parameters():
+            param.grad = None
         # Return losses and mini-batch size
         return loss, losses_dict
     # Else if evaluating retain additional info
@@ -442,7 +460,7 @@ def process_evaluation(
         dir_name: str,
         file_suffix: str,
         sub_tag: str,
-        step_idx: Optional[int] = None,
+        step: Optional[int] = None,
         best_validation_score: Optional[float] = None
 ) -> Union[str, Tuple[float, float, float, float]]:
     # Declare global variables
@@ -455,14 +473,12 @@ def process_evaluation(
             return latest_value >= best_value  # ELBO must increase for an improvement
         else:
             return latest_value <= best_value  # NLL must decrease for an improvement
-    # Current step
-    step = step_idx + 1 if step_idx is not None else None
     # Initialize validation accumulators
-    validation_loss: Union[float, List[float]] = list()
-    validation_losses_dict: Dict[str, Union[float, List[float]]] = {key: list() for key in LOSS_KEYS_MAPPING}
-    ppl: Union[float, List[float]] = list()
-    elbo: Union[float, List[float]] = list()
-    kl_divergence: Union[float, List[float]] = list()
+    validation_loss: torch.tensor = torch.empty(0, device=device)
+    validation_losses_dict: Dict[str, torch.tensor] = {key: torch.empty(0, device=device) for key in LOSS_KEYS_MAPPING}
+    ppl: torch.tensor = torch.empty(0, device=device)
+    elbo: torch.tensor = torch.empty(0, device=device)
+    kl_divergence: torch.tensor = torch.empty(0, device=device)
     # Processed samples
     processed_data: List[Dict] = list()
     # Perform evaluation step
@@ -472,31 +488,35 @@ def process_evaluation(
         tmp_loss, tmp_losses_dict, processed_mini_batch = process_mini_batch(split, *mini_batch)
         # Update accumulators
         # Validation loss
-        validation_loss += tmp_loss
+        validation_loss = torch.cat([validation_loss, tmp_loss])
+        # Dict losses
         for key in validation_losses_dict:
-            validation_losses_dict[key] += tmp_losses_dict.get(key, list())
-        ppl += [math.exp(nll) for nll in tmp_losses_dict.get(PPL_NLL_LOSS_KEY, list())]
-        elbo += tmp_losses_dict.get(ELBO_OBJECTIVE_KEY, list())
-        kl_divergence += tmp_losses_dict.get(KL_DIVERGENCE_LOSS_KEY, list())
+            validation_losses_dict[key] += torch.cat([validation_losses_dict[key], tmp_losses_dict[key]])
+        # Other indicators
+        ppl = torch.cat([ppl, tmp_losses_dict[PPL_NLL_LOSS_KEY].exp()])
+        elbo = torch.cat([elbo, tmp_losses_dict[ELBO_OBJECTIVE_KEY]])
+        kl_divergence = torch.cat([kl_divergence, tmp_losses_dict[KL_DIVERGENCE_LOSS_KEY]])
+        # Processed samples
         processed_data += processed_mini_batch
-    # Get correct number of elements
-    if len(validation_loss) == 0:
-        n_elements: int = 1
-    elif len(validation_loss) < len(corpora[DataSetSplit(split)]):
-        n_elements: int = len(validation_loss)
-    else:
-        n_elements: int = len(corpora[DataSetSplit(split)])
-    # Average score
-    validation_loss = sum(validation_loss) / n_elements
-    validation_losses_dict = {key: sum(validation_losses_dict[key]) / n_elements for key in validation_losses_dict}
-    ppl = sum(ppl) / n_elements
-    elbo = sum(elbo) / n_elements
-    kl_divergence = sum(kl_divergence) / n_elements
+    # Average scores and recover all results from device and convert to python default types
+    # Validation loss
+    validation_loss = validation_loss.mean().cpu().item()
+    # Dict losses
+    for key in validation_losses_dict:
+        validation_losses_dict[key] += validation_losses_dict[key].mean().cpu().item()
+    # Other indicators
+    ppl = ppl.mean().cpu().item()
+    elbo = elbo.mean().cpu().item()
+    kl_divergence = kl_divergence.mean().cpu().item()
+    # Sampled latents
+    for sample in processed_data:
+        if isinstance(sample['latent'], torch.Tensor):
+            sample['latent'] = tokenizer.decode(sample['latent'].cpu().item())
     # Log losses
     writer.add_scalar(f'Loss/{sub_tag}', validation_loss, step)
     writer.add_scalars(
         f'Metrics/{sub_tag}',
-        {LOSS_KEYS_MAPPING[key]: validation_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
+        {LOSS_KEYS_MAPPING[key]: validation_losses_dict[key] for key in LOSS_KEYS_MAPPING},
         step
     )
     # Metrics and samples for visualisation
@@ -606,7 +626,7 @@ def fit_model():
     # Declare global variables
     global optimizer_configs, checkpoint_gradient, writer, corpora, corpus_loaders, model_checkpoint_path, best_model_checkpoint_path
 
-    # Define helper function to call validation
+    # Define helper function to call validation and logging
     def evaluation_step() -> float:
         # Log start of validation
         logging.info(
@@ -621,7 +641,7 @@ def fit_model():
             'validation',
             f'validation_{str(validation_idx).zfill(4)}',
             'Validation',
-            step_idx=step_idx,
+            step=step_idx,
             best_validation_score=best_validation_score
         )
         # Log end of validation
@@ -634,14 +654,34 @@ def fit_model():
 
         return best_score
 
+    def log_training_steps():
+        # Log training info (mini-batch level)
+        # Tensorboard
+        for (step, tmp_loss), (_, tmp_losses_dict) in zip(loss, losses_dict):
+            writer.add_scalar('Loss/Training', tmp_loss.cpu().item(), step)
+            writer.add_scalars(
+                'Metrics/Training',
+                {LOSS_KEYS_MAPPING[key]: tmp_losses_dict[key].cpu().item() for key in LOSS_KEYS_MAPPING},
+                step
+            )
+            # Std output
+            logging.info(
+                f"Parameters updated at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
+                f"Loss {tmp_loss.cpu().item():.4f}"
+            )
     # Initialize values
     # Initialize train accumulators
     # Number of elements
     n_epochs = optimizer_configs['n_epochs']
     n_train_batches: int = len(corpus_loaders[DataSetSplit('train')])
+    validation_period = evaluation_configs.get('validation_period', n_train_batches)
+    logging_period = evaluation_configs.get('logging_period', validation_period)
     # Initialize operation counter
     step_idx: int = 0
     validation_idx: int = 0
+    # Initialise accumulators for losses
+    loss = list()
+    losses_dict = ()
     # Initialize best validation score
     eval_mode = LOSS_EVALUATION_MODE_MAPPING.get(evaluation_configs.get('monitored_metric'), EvaluationMode.MIN)
     if eval_mode == EvaluationMode.MAX:
@@ -655,34 +695,38 @@ def fit_model():
     start_time: datetime = datetime.now()
     # Log start of misc
     logging.info(f"Training started - Current date and time {start_time}")
+    # Run initial validation step
+    epoch = -1
+    b_idx = -1
+    best_validation_score = evaluation_step()
     # Iterate over epochs
     for epoch in range(n_epochs):
         logging.info(f"Epoch {epoch + 1}/{n_epochs} started")
         # Iterate over mini-batches
         for b_idx, mini_batch in enumerate(corpus_loaders[DataSetSplit('train')]):
+            # Process current mini-batch
+            mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
+            loss.append((step_idx + 1, mini_batch_loss))
+            losses_dict.append((step_idx + 1, mini_batch_loss))
+            # Update global step counter
+            step_idx += 1
+            # Check if training is completed
+            training_completed = (epoch == n_epochs - 1) and (b_idx == len(corpus_loaders[DataSetSplit('train')]) - 1)
+            # Log loss if required
+            if step_idx % logging_period == 0 or training_completed:
+                # Call logging step
+                log_training_steps()
+                # Clear accumulators
+                loss = list()
+                losses_dict = list()
             # Do validation step if required
-            if step_idx % evaluation_configs['validation_period'] == 0:
+            if step_idx % validation_period == 0 or training_completed:
+                # Update cls head weights
+                model.update_cls_weights()
                 # Run validation step
                 best_validation_score = evaluation_step()
                 # Update validation counter
                 validation_idx += 1
-            # Process current mini-batch
-            mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
-            # Log misc info (mini-batch level)
-            # Tensorboard
-            writer.add_scalar('Loss/Training', mini_batch_loss, step_idx + 1)
-            writer.add_scalars(
-                'Metrics/Training',
-                {LOSS_KEYS_MAPPING[key]: mini_batch_losses_dict.get(key, 0.0) for key in LOSS_KEYS_MAPPING},
-                step_idx + 1
-            )
-            # Std output
-            logging.info(
-                f"Parameters updated at epoch {epoch + 1}/{n_epochs}, mini-batch {b_idx + 1}/{n_train_batches} - "
-                f"Loss {mini_batch_loss:.4f}"
-            )
-            # Update global step counter
-            step_idx += 1
         # Update cls head weights
         model.update_cls_weights()
         # Checkpoint trained model
@@ -694,8 +738,6 @@ def fit_model():
         logging.info("Models saved using utilities")
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
-    # Run final validation step
-    best_validation_score = evaluation_step()
     # Close misc
     # Get current date and time
     end_time: datetime = datetime.now()
