@@ -15,10 +15,10 @@ def groupby(data, key) -> Dict:
     return groups
 
 
-def get_latent_word_counts(labelled_samples: List[Dict]) -> Dict[str, Counter]:
+def get_latent_word_stats(labelled_samples: List[Dict]) -> Dict[str, Counter]:
     # Group response by latent code and compute word counts
     word_counts = {
-        label: sum((sample['word_counts']for sample in samples), Counter())
+        label: sum((sample.get('tf-idf', sample['word_counts']) for sample in samples), Counter())
         for label, samples in groupby(labelled_samples, lambda x: x['latent']).items()  # FIXME
     }
 
@@ -57,9 +57,9 @@ def get_response_samples(
     # For each of the considered samples and for each latent code generate a response
     is_training = model.training
     if is_training:
-        model = model.eval()
+        model.eval()
 
-    with torch.no_grad(), torch.cuda.amp.autocast(enabled=mixed_precision):
+    with torch.no_grad(), torch.autocast(device.type, enabled=mixed_precision):
         for sample in labelled_samples:
             generated_samples: Dict[str, str] = dict()
             prompt = sample['context']
@@ -79,7 +79,7 @@ def get_response_samples(
             sample['generated_responses'] = generated_samples
 
     if is_training:
-        model = model.train()
+        model.train()
 
     return labelled_samples
 

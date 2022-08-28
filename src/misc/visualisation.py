@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
 
 
-def log_word_counts(
+def log_word_stats(
         data: Dict[str, Counter],
         top_n: int = 15,
         group_id_regex: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>'),
@@ -32,7 +32,7 @@ def log_word_counts(
                 ) + "\n"
 
     if tb_writer is not None:
-        tag = f'Action-word counts/{sub_tag}' if sub_tag is not None else 'Action-word counts'
+        tag = f'Action-word stats/{sub_tag}' if sub_tag is not None else 'Action-word stats'
         tb_writer.add_text(tag, MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', text), step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
@@ -44,7 +44,7 @@ def log_word_counts(
     return text
 
 
-def plot_word_counts(
+def plot_word_stats(
         data: Dict[str, Counter],
         top_n: int = 15,
         group_id_regex: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>'),
@@ -75,11 +75,11 @@ def plot_word_counts(
         for i in "top right left".split():
             ax.spines[i].set_visible(False)
         if sub_tag is not None:
-            figure.suptitle(f"Latent actions word counts ({sub_tag})", fontsize=32)
+            figure.suptitle(f"Latent actions word stats ({sub_tag})", fontsize=32)
     plt.subplots_adjust(top=0.90, bottom=0.05, wspace=0.90, hspace=0.3)
 
     if tb_writer is not None:
-        tag = f'Latent actions word counts ({sub_tag})' if sub_tag is not None else 'Latent actions word counts'
+        tag = f'Latent actions word stats ({sub_tag})' if sub_tag is not None else 'Latent actions word stats'
         tb_writer.add_figure(tag, figure, step)
     if dest_dir is not None and file_name is not None:
         if not os.path.exists(dest_dir):
