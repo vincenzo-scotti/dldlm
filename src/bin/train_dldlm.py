@@ -9,16 +9,15 @@ import yaml
 from typing import Optional, Union, Tuple, List, Dict, Pattern
 
 import random
-import math
 import numpy as np
 from misc import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
-from misc import get_latent_word_counts, get_traces, get_latents_count, get_response_samples
-from misc import log_word_counts, log_traces, log_latents_count, log_generated_response
-from misc import plot_word_counts, plot_traces
+from misc import get_latent_word_stats, get_traces, get_latents_count, get_response_samples
+from misc import log_word_stats, log_traces, log_latents_count, log_generated_response
+from misc import plot_word_stats, plot_traces
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
-from torch.cuda.amp import autocast, GradScaler
+from torch.cuda.amp import GradScaler
 from misc import LinearLR, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
@@ -165,7 +164,7 @@ def init_environment(config_file_path: str):
     # Init logging
     logging.basicConfig(filename=log_file_path, level=configs['log_level'])
     # Start Logging info
-    logging.info(f"{configs['experiment_series']} misc script started")
+    logging.info(f"{configs['experiment_series']} training script started")
     logging.info(f"Current experiment directories created at '{current_experiment_dir_path}'")
     if log_file_path is not None:
         logging.info(f"Current experiment log created at '{log_file_path}'")
@@ -286,7 +285,7 @@ def init_optimisation_tools():
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
-    # Get total number of misc steps
+    # Get total number of training steps
     steps = (len(corpus_loaders[DataSetSplit('train')]) * optimizer_configs['n_epochs']) + 1
     # If using LR scheduling create instance of scheduler
     if lr_scheduler_configs:
@@ -348,9 +347,9 @@ def process_mini_batch(
                 )
                 # Scale losses if model model is training
                 if model.training:
-                    tmp_loss = model_outputs.loss
+                    tmp_loss = model_outputs.loss.squeeze()
                     tmp_losses_dict = {
-                        key: model_outputs.loss_function_output.get(key, torch.tensor(0.0, device=device))
+                        key: model_outputs.loss_function_output.get(key, torch.tensor(0.0, device=device)).squeeze()
                         for key in losses_dict
                     }
                     # Scale loss if using gradient accumulation
@@ -359,7 +358,7 @@ def process_mini_batch(
                         tmp_loss *= scaling_factor
                         for key in tmp_losses_dict:
                             tmp_losses_dict[key] *= scaling_factor
-            # Compute gradients if model is misc
+            # Compute gradients if model is training
             if model.training:
                 # Compute gradients
                 if scaler is not None:
@@ -425,7 +424,7 @@ def process_mini_batch(
         # Else re-run with lower in-memory sequences
         else:
             return process_mini_batch(split, input_ids, attention_mask, labels, raw_data, in_mem=max(1, in_mem // 2))
-    # Update weights model if misc
+    # Update model weights if training
     if model.training:
         # Clip gradient norm
         if optimizer_configs['max_gradient_norm'] > 0.0:
@@ -491,7 +490,7 @@ def process_evaluation(
         validation_loss = torch.cat([validation_loss, tmp_loss])
         # Dict losses
         for key in validation_losses_dict:
-            validation_losses_dict[key] += torch.cat([validation_losses_dict[key], tmp_losses_dict[key]])
+            validation_losses_dict[key] = torch.cat([validation_losses_dict[key], tmp_losses_dict[key]])
         # Other indicators
         ppl = torch.cat([ppl, tmp_losses_dict[PPL_NLL_LOSS_KEY].exp()])
         elbo = torch.cat([elbo, tmp_losses_dict[ELBO_OBJECTIVE_KEY]])
@@ -503,7 +502,7 @@ def process_evaluation(
     validation_loss = validation_loss.mean().cpu().item()
     # Dict losses
     for key in validation_losses_dict:
-        validation_losses_dict[key] += validation_losses_dict[key].mean().cpu().item()
+        validation_losses_dict[key] = validation_losses_dict[key].mean().cpu().item()
     # Other indicators
     ppl = ppl.mean().cpu().item()
     elbo = elbo.mean().cpu().item()
@@ -521,7 +520,7 @@ def process_evaluation(
     )
     # Metrics and samples for visualisation
     latent_counts = get_latents_count(processed_data)
-    word_counts = get_latent_word_counts(processed_data)
+    word_counts = get_latent_word_stats(processed_data)
     traces = get_traces(processed_data, **evaluation_configs['metrics']['traces'])
     response_samples = get_response_samples(
         processed_data,
@@ -548,7 +547,7 @@ def process_evaluation(
         step
     )
     # Word counts
-    log_word_counts(
+    log_word_stats(
         word_counts,
         tb_writer=writer,
         sub_tag=sub_tag,
@@ -556,7 +555,7 @@ def process_evaluation(
         dest_dir=os.path.join(count_txt_dir_path, dir_name),
         file_name=f'latent_word_counts_{file_suffix}.txt'
     )
-    plot_word_counts(
+    plot_word_stats(
         word_counts,
         tb_writer=writer,
         sub_tag=sub_tag,
@@ -592,11 +591,11 @@ def process_evaluation(
     )
     # If this is the standard validation process check for best model
     if best_validation_score is not None:
-        improvement = improved(
-            validation_losses_dict.get(evaluation_configs.get('monitored_metric'), validation_loss),
-            best_validation_score
+        logging.info("Checking for validation objective improvement")
+        current_validation_score = validation_losses_dict.get(
+            evaluation_configs.get('monitored_metric'), validation_loss
         )
-        if improvement:
+        if improved(current_validation_score, best_validation_score):
             # Save model state dictionary
             if checkpoint_gradient:
                 model.gradient_checkpointing_disable()
@@ -604,9 +603,7 @@ def process_evaluation(
             if checkpoint_gradient:
                 model.gradient_checkpointing_enable()
             # Update best score
-            best_validation_score = validation_losses_dict.get(
-                evaluation_configs.get('monitored_metric'), validation_loss
-            )
+            best_validation_score = current_validation_score
             # Log update
             logging.info("Validation objective improved, model checkpoint triggered")
 
@@ -646,11 +643,13 @@ def fit_model():
         )
         # Log end of validation
         logging.info(
-            f"Validation completed - PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
+            f"Validation completed - "
+            f"Validation objective current best score: {best_score:.4f} - "
+            f"PPL: {ppl:.4f}, ELBO: {elbo:.4f}, KL Divergence: {kl_divergence:.4f}"
         )
-        # Set model back in misc mode
+        # Set model back in training mode
         model.train()
-        logging.info("Model set in misc mode")
+        logging.info("Model set in training mode")
 
         return best_score
 
@@ -681,19 +680,19 @@ def fit_model():
     validation_idx: int = 0
     # Initialise accumulators for losses
     loss = list()
-    losses_dict = ()
+    losses_dict = list()
     # Initialize best validation score
     eval_mode = LOSS_EVALUATION_MODE_MAPPING.get(evaluation_configs.get('monitored_metric'), EvaluationMode.MIN)
     if eval_mode == EvaluationMode.MAX:
         best_validation_score: float = -float('inf')
     else:
         best_validation_score: float = float('inf')
-    # Set model in misc mode
+    # Set model in training mode
     model.train()
     # Train and validation process
     # Get current date and time
     start_time: datetime = datetime.now()
-    # Log start of misc
+    # Log start of training
     logging.info(f"Training started - Current date and time {start_time}")
     # Run initial validation step
     epoch = -1
@@ -707,7 +706,7 @@ def fit_model():
             # Process current mini-batch
             mini_batch_loss, mini_batch_losses_dict = process_mini_batch('train', *mini_batch)
             loss.append((step_idx + 1, mini_batch_loss))
-            losses_dict.append((step_idx + 1, mini_batch_loss))
+            losses_dict.append((step_idx + 1, mini_batch_losses_dict))
             # Update global step counter
             step_idx += 1
             # Check if training is completed
@@ -738,10 +737,10 @@ def fit_model():
         logging.info("Models saved using utilities")
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
-    # Close misc
+    # Close training
     # Get current date and time
     end_time: datetime = datetime.now()
-    # Log end of misc
+    # Log end of training
     logging.info(f"Training finished - Current date and time {end_time}")
     logging.info(f"Elapsed time {end_time - start_time}")
     # Restore best validation model weights
@@ -804,7 +803,7 @@ def main(args: Namespace):
     fit_model()
     # Testing process
     evaluate_model()
-    # Clean misc output if any
+    # Clean training output if any
     clean_environment()
 
     return 0
