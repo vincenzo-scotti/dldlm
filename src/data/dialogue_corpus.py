@@ -3,12 +3,11 @@ import os
 import bz2
 import pickle
 
-from collections import Counter
+from joblib import Parallel
+from joblib import delayed
+from joblib import parallel_backend
 
-import spacy
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
+from collections import Counter
 
 import torch
 from torch.utils.data import Dataset
@@ -17,8 +16,9 @@ from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWiki
 from .corpora import Hope, CounsellingAndPsychotherapyCorpus
 
 from model import DLDLMTokenizer
+from misc import get_word_counts, tf_idf
 
-from typing import List, Tuple, Dict, Optional, Set
+from typing import List, Tuple, Dict, Optional
 
 CORPORA: Dict = {
     CounsellingAndPsychotherapyCorpus.IDENTIFIER: CounsellingAndPsychotherapyCorpus,
@@ -29,25 +29,14 @@ CORPORA: Dict = {
     WizardOfWikipedia.IDENTIFIER: WizardOfWikipedia,
 }
 
-nltk.download('stopwords')
-nltk.download('punkt')
-STOP_WORDS: Set[str] = set(stopwords.words('english')) | spacy.load('en_core_web_sm').Defaults.stop_words
-PUNCTUATION: Set[str] = set("[!\"#$%&()*+,-./:;<=>?@[]\\^`{|}~_']") | {'...', '``', '\'\'', '--'}
-CUSTOM_STOP_WORDS: Set[str] = set()
-
-
-def get_word_counts(s: str, remove_stop_words: bool = True) -> Counter:
-    if remove_stop_words:
-        return Counter(
-            w.lower() for w in word_tokenize(s) if w.lower() not in STOP_WORDS | PUNCTUATION | CUSTOM_STOP_WORDS
-        )
-    else:
-        return Counter(w.lower() for w in word_tokenize(s))
-
 
 # TODO move here context cutting, it shouldn't be part of the corpora loaders
 # TODO add class for fine tuning
 class DLDLMCorpus(Dataset):
+    # Additional static attributes (used in incremental TF-IDF computation)
+    word_doc_counts: Optional[Dict[DataSetSplit, Counter]] = None
+    n_docs: Optional[Dict[DataSetSplit, int]] = None
+
     def __init__(
             self,
             corpora_dir_path: str,
@@ -61,7 +50,13 @@ class DLDLMCorpus(Dataset):
             max_response_length: Optional[int] = None,
             latent: bool = True,
             count_word_tokens: bool = False,
+            compute_tf_idf: bool = True,
+            incremental_tf_idf: bool = True,
             remove_stopwords: bool = True,
+            min_df: int = 2,
+            concurrent_backend: str = 'threading',
+            n_jobs: int = -1,
+            verbosity_level: int = 2,
             **kwargs
     ):
         super(DLDLMCorpus, self).__init__()
@@ -80,6 +75,11 @@ class DLDLMCorpus(Dataset):
 
         # Generate cache if needed
         if not os.path.exists(self.corpus_cache_file_path) or reload_cache:
+            # Save parallelisation options
+            self.parallel_backend: str = concurrent_backend
+            self.n_jobs: int = n_jobs
+            self.verbosity_level: int = verbosity_level
+
             # Create cache dir if not exists
             if not os.path.exists(cache_dir_path):
                 os.mkdir(cache_dir_path)
@@ -95,8 +95,16 @@ class DLDLMCorpus(Dataset):
             else:
                 self.corpus_list: List[str] = corpus_list
             # Word count flags
-            self.count_word_tokens: bool = count_word_tokens
-            self.remove_stopwords: bool = remove_stopwords
+            self.compute_tf_idf: bool = compute_tf_idf
+            self.incremental_tf_idf: bool = incremental_tf_idf and compute_tf_idf
+            self.count_word_tokens: bool = count_word_tokens or self.compute_tf_idf
+            self.remove_stopwords: bool = remove_stopwords and not self.compute_tf_idf
+            # Create static dictionaries if required
+            if self.incremental_tf_idf:
+                self.word_doc_counts = dict()
+                self.n_docs = dict()
+            # Other TF-IDF params
+            self.min_df: int = min_df
             # Load all corpora and generate cache
             self._generate_data_cache(*args, **kwargs)
         # Else simply load the cache
@@ -118,16 +126,57 @@ class DLDLMCorpus(Dataset):
                 self.data_set_split.value,
                 self.tokenizer,
                 *args,
+                parallel_backend=self.parallel_backend,
+                n_jobs=self.n_jobs,
+                verbosity_level=self.verbosity_level,
                 **kwargs
             )
             for corpus_id in self.corpus_list
         ]
         # and gather the data
         self.data = [corpus[idx] for corpus in corpora for idx in range(len(corpus))]
-        # Count word tokens in needed
-        if self.count_word_tokens:
-            for sample in self.data:
-                sample['word_counts'] = get_word_counts(sample['response'], remove_stop_words=self.remove_stopwords)
+        self.data = self.data[:1000]
+        # Compute additional info if needed
+        with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
+            # Helper functions
+            def get_word_counts_wrapper(sample):
+                sample['word_counts'] = get_word_counts(sample['response'], remove_stopwords=self.remove_stopwords)
+
+            def get_document_counts_wrapper(sample):
+                return Counter(sample['word_counts'].keys())
+
+            def get_word_tf_idf_scores_wrapper(sample):
+                sample['tf-idf'] = tf_idf(sample['word_counts'], word_document_counts, n_docs, min=self.min_df)
+
+            # Count word tokens in needed
+            if self.count_word_tokens:
+                Parallel(verbose=self.verbosity_level)(
+                    delayed(get_word_counts_wrapper)(sample) for sample in self.data
+                )
+            # Possibly compute TF-IDF
+            if self.compute_tf_idf:
+                # Count word document instances
+                word_document_counts: Counter = sum(
+                    Parallel(verbose=self.verbosity_level)(
+                        delayed(get_document_counts_wrapper)(sample) for sample in self.data
+                    ), Counter()
+                )
+                # Count number of documents
+                n_docs = len(self.data)
+                # Possibly update with other split counts
+                if self.incremental_tf_idf:
+                    if self.data_set_split == DataSetSplit.VALIDATION:
+                        word_document_counts.update(self.word_doc_counts.get(DataSetSplit('validation'), Counter()))
+                        n_docs += self.n_docs.get(DataSetSplit('validation'), 0)
+                    elif self.data_set_split == DataSetSplit.TEST:
+                        word_document_counts.update(self.word_doc_counts.get(DataSetSplit('test'), Counter()))
+                        n_docs += self.n_docs.get(DataSetSplit('test'), 0)
+                    self.word_doc_counts[self.data_set_split] = word_document_counts
+                    self.n_docs[self.data_set_split] = n_docs
+                # Compute TF-IDF
+                Parallel(verbose=self.verbosity_level)(
+                    delayed(get_word_tf_idf_scores_wrapper)(sample) for sample in self.data
+                )
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
             pickle.dump(self.data, f)
