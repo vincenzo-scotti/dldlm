@@ -135,7 +135,6 @@ class DLDLMCorpus(Dataset):
         ]
         # and gather the data
         self.data = [corpus[idx] for corpus in corpora for idx in range(len(corpus))]
-        self.data = self.data[:1000]
         # Compute additional info if needed
         with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
             # Helper functions

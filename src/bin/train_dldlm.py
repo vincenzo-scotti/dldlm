@@ -310,8 +310,7 @@ def process_mini_batch(
         input_ids: torch.LongTensor,  # Shape (batch_size, )
         attention_mask: torch.LongTensor,  # Shape (batch_size, length)
         labels: torch.LongTensor,  # Shape (batch_size, response_length)
-        raw_data: List[Dict],
-        in_mem: Optional[int] = None
+        raw_data: List[Dict]
 ) -> Union[Tuple[torch.Tensor, Dict[str, torch.Tensor]], Tuple[torch.Tensor, Dict[str, torch.Tensor], List[Dict]]]:
     # Declare global variables
     global mem_failures, corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
@@ -319,7 +318,7 @@ def process_mini_batch(
         trace_plots_dir_path, count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path
     # Compute helper params
     mini_batch_size: int = len(input_ids)
-    in_mem: int = in_mem if in_mem is not None else corpus_configs['splits'][split]['in_mem']
+    in_mem: int = corpus_configs['splits'][split]['in_mem']
     # Create accumulators
     loss: torch.tensor = torch.tensor(0.0, device=device) if model.training else torch.empty(0, device=device)
     losses_dict: Dict[str, torch.tensor] = {
@@ -334,96 +333,57 @@ def process_mini_batch(
     beta = beta_scheduler.get_beta() if model.training and beta_scheduler is not None else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
-    try:
-        for s_idx, e_idx in idxs:
-            with torch.autocast(device.type, enabled=mixed_precision):
-                # Process current elements
-                model_outputs = model(
-                    input_ids=input_ids[s_idx:e_idx],
-                    attention_mask=attention_mask[s_idx:e_idx],
-                    labels=labels[s_idx:e_idx],
-                    kl_loss_weight=beta,
-                    reduction=model.training
-                )
-                # Scale losses if model model is training
-                if model.training:
-                    tmp_loss = model_outputs.loss.squeeze()
-                    tmp_losses_dict = {
-                        key: model_outputs.loss_function_output.get(key, torch.tensor(0.0, device=device)).squeeze()
-                        for key in losses_dict
-                    }
-                    # Scale loss if using gradient accumulation
-                    if e_idx - s_idx != mini_batch_size:
-                        scaling_factor = (e_idx - s_idx) / mini_batch_size
-                        tmp_loss *= scaling_factor
-                        for key in tmp_losses_dict:
-                            tmp_losses_dict[key] *= scaling_factor
-            # Compute gradients if model is training
+    for s_idx, e_idx in idxs:
+        with torch.autocast(device.type, enabled=mixed_precision):
+            # Process current elements
+            model_outputs = model(
+                input_ids=input_ids[s_idx:e_idx],
+                attention_mask=attention_mask[s_idx:e_idx],
+                labels=labels[s_idx:e_idx],
+                kl_loss_weight=beta,
+                reduction=model.training
+            )
+            # Scale losses if model model is training
             if model.training:
-                # Compute gradients
-                if scaler is not None:
-                    scaler.scale(tmp_loss).backward()
-                else:
-                    tmp_loss.backward()
-                # Update accumulators
-                loss += tmp_loss.detach()
-                for key in losses_dict:
-                    losses_dict[key] += tmp_losses_dict[key].detach()
-            # Else update accumulators collect predicted latents
+                tmp_loss = model_outputs.loss.squeeze()
+                tmp_losses_dict = {
+                    key: model_outputs.loss_function_output.get(key, torch.tensor(0.0, device=device)).squeeze()
+                    for key in losses_dict
+                }
+                # Scale loss if using gradient accumulation
+                if e_idx - s_idx != mini_batch_size:
+                    scaling_factor = (e_idx - s_idx) / mini_batch_size
+                    tmp_loss *= scaling_factor
+                    for key in tmp_losses_dict:
+                        tmp_losses_dict[key] *= scaling_factor
+        # Compute gradients if model is training
+        if model.training:
+            # Update accumulators
+            loss += tmp_loss.detach()
+            for key in losses_dict:
+                losses_dict[key] += tmp_losses_dict[key].detach()
+            # Compute gradients (possibly scaling)
+            if scaler is not None:
+                scaler.scale(tmp_loss).backward()
             else:
-                loss = torch.cat([loss, model_outputs.loss])
-                for key in losses_dict:
-                    losses_dict[key] = torch.cat([
-                        losses_dict[key],
-                        model_outputs.loss_function_output.get(key, torch.empty(0, device=device))
-                        # if key in model_outputs.loss_function_output
-                        # else torch.empty(0, device=device)
-                    ])
-                if model.config.unconditioned:
-                    for sample in raw_data[s_idx:e_idx]:
-                        sample['latent'] = '<|unconditioned|>'
-                else:
-                    for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
-                        sample['latent'] = model_outputs.latent[idx].squeeze()  # tokenizer.decode(latent)
-    except RuntimeError as e:
-        # Check whether it is an out-of-memory error
-        if 'out of memory' not in str(e):
-            raise e
-        logging.error("Run-time error occurred, clearing gradients and cache and lowering in-memory sequences")
-        # Remove gradients computed up to now
-        for param in model.parameters():
-            param.grad = None
-        # Empty cache
-        torch.cuda.empty_cache()
-        # Update memory failures counter
-        mem_failures -= 1
-        if mem_failures == 0:
-            logging.error("Too many consecutive in-memory failures, reducing permanently memory usage")
-            mem_failures = max_mem_failures
-            corpus_configs['splits'][split]['in_mem'] = max(1, corpus_configs['splits'][split]['in_mem'] // 2)
-        # If the current in-memory elements were already one skip this batch
-        if in_mem == 1:
-            logging.error("Skipping this batch")
-            # Generate dummy output
-            dummy_loss: torch.tensor = torch.tensor(float('nan'), device=device) if model.training else torch.empty(0, device=device)
-            dummy_losses_dict: Dict[str, torch.tensor] = {
-                key: torch.tensor(float('nan'), device=device) if model.training else torch.empty(0, device=device)
-                for key in LOSS_KEYS_MAPPING
-            }
-            # Return dummy output
-            if model.training:
-                # Update learning rate and beta
-                if lr_scheduler is not None:
-                    lr_scheduler.step()
-                if beta_scheduler is not None:
-                    beta_scheduler.step()
+                tmp_loss.backward()
 
-                return dummy_loss, dummy_losses_dict
-            else:
-                return dummy_loss, dummy_losses_dict, list()
-        # Else re-run with lower in-memory sequences
+        # Else update accumulators collect predicted latents
         else:
-            return process_mini_batch(split, input_ids, attention_mask, labels, raw_data, in_mem=max(1, in_mem // 2))
+            loss = torch.cat([loss, model_outputs.loss])
+            for key in losses_dict:
+                losses_dict[key] = torch.cat([
+                    losses_dict[key],
+                    model_outputs.loss_function_output.get(key, torch.empty(0, device=device))
+                    # if key in model_outputs.loss_function_output
+                    # else torch.empty(0, device=device)
+                ])
+            if model.config.unconditioned:
+                for sample in raw_data[s_idx:e_idx]:
+                    sample['latent'] = '<|unconditioned|>'
+            else:
+                for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
+                    sample['latent'] = model_outputs.latent[idx].squeeze()  # tokenizer.decode(latent)
     # Update model weights if training
     if model.training:
         # Clip gradient norm
@@ -697,6 +657,7 @@ def fit_model():
     # Run initial validation step
     epoch = -1
     b_idx = -1
+    #
     best_validation_score = evaluation_step()
     # Iterate over epochs
     for epoch in range(n_epochs):
