@@ -52,7 +52,6 @@ class DLDLMCorpus(Dataset):
             count_word_tokens: bool = False,
             compute_tf_idf: bool = True,
             incremental_tf_idf: bool = True,
-            remove_stopwords: bool = True,
             min_df: int = 2,
             concurrent_backend: str = 'threading',
             n_jobs: int = -1,
@@ -98,7 +97,6 @@ class DLDLMCorpus(Dataset):
             self.compute_tf_idf: bool = compute_tf_idf
             self.incremental_tf_idf: bool = incremental_tf_idf and compute_tf_idf
             self.count_word_tokens: bool = count_word_tokens or self.compute_tf_idf
-            self.remove_stopwords: bool = remove_stopwords and not self.compute_tf_idf
             # Create static dictionaries if required
             if self.incremental_tf_idf:
                 self.word_doc_counts = dict()
@@ -139,13 +137,17 @@ class DLDLMCorpus(Dataset):
         with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
             # Helper functions
             def get_word_counts_wrapper(sample):
-                sample['word_counts'] = get_word_counts(sample['response'], remove_stopwords=self.remove_stopwords)
+                sample['word_counts'] = get_word_counts(sample['response'])
+                sample['word_counts_no_sw'] = get_word_counts(sample['response'], remove_stopwords=True)
 
             def get_document_counts_wrapper(sample):
                 return Counter(sample['word_counts'].keys())
 
             def get_word_tf_idf_scores_wrapper(sample):
-                sample['tf-idf'] = tf_idf(sample['word_counts'], word_document_counts, n_docs, min=self.min_df)
+                sample['tf_idf'] = tf_idf(sample['word_counts'], word_document_counts, n_docs, min=self.min_df)
+                sample['tf_idf_no_sw'] = tf_idf(
+                    sample['word_counts_no_sw'], word_document_counts, n_docs, min=self.min_df
+                )
 
             # Count word tokens in needed
             if self.count_word_tokens:

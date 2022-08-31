@@ -46,15 +46,10 @@ LOSS_KEYS_MAPPING = {
     'tf_loss': 'Term-Frequency Cross-Entropy',
 }
 
-LATENT_REGEX: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>')
-MARKDOWN_BREAKLINE_REGEX: Pattern[str] = re.compile(r'([^\n])[\n]([^\n])')
-
 
 # Variables to control model and optimization parameters
 # Environment
 random_seed: Optional[int]
-max_mem_failures: int = 16
-mem_failures: int
 device: torch.device
 mixed_precision: bool = True
 checkpoint_gradient: bool = False
@@ -92,7 +87,7 @@ best_model_checkpoint_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, checkpoint_gradient, writer, max_mem_failures, mem_failures
+    global random_seed, device, mixed_precision, checkpoint_gradient, writer, mem_failures
     global model_configs, tokenizer_configs, corpus_configs, \
         optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
@@ -179,7 +174,7 @@ def init_environment(config_file_path: str):
     logging.info(f"Tensor-Board writer created at '{tb_dir_path}'")
     # Dump configs
     copy2(config_file_path, configs_dump_path)
-    writer.add_text('Configs', MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', configs_dump_str))
+    writer.add_text('Configs',  f"<pre>{configs_dump_str}</pre>")
     logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
     # Set device
     device = torch.device(configs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
@@ -190,9 +185,6 @@ def init_environment(config_file_path: str):
     # Check for gradient checkpointing
     checkpoint_gradient = configs.get('checkpoint_gradient', checkpoint_gradient)
     logging.info(f"Gradient checkpointing {'enabled' if checkpoint_gradient else 'disabled'}")
-    # Mem losses
-    max_mem_failures = mem_failures = configs.get('checkpoint_gradient', max_mem_failures)
-    logging.info(f"Maximum memory failures set to {max_mem_failures}")
     # Load remaining configs
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
@@ -352,7 +344,7 @@ def process_mini_batch(
                 }
                 # Scale loss if using gradient accumulation
                 if e_idx - s_idx != mini_batch_size:
-                    scaling_factor = (e_idx - s_idx) / mini_batch_size
+                    scaling_factor = torch.tensor((e_idx - s_idx) / mini_batch_size, device=device)
                     tmp_loss *= scaling_factor
                     for key in tmp_losses_dict:
                         tmp_losses_dict[key] *= scaling_factor
@@ -480,7 +472,7 @@ def process_evaluation(
     )
     # Metrics and samples for visualisation
     latent_counts = get_latents_count(processed_data)
-    word_counts = get_latent_word_stats(processed_data)
+    word_counts = get_latent_word_stats(processed_data, **evaluation_configs['metrics']['word_stats'])
     traces = get_traces(processed_data, **evaluation_configs['metrics']['traces'])
     response_samples = get_response_samples(
         processed_data,
@@ -574,7 +566,7 @@ def process_evaluation(
                         f"\tPPL: {ppl:.4f}\n" \
                         f"\tELBO: {elbo:.4f}\n" \
                         f"\tKL Divergence: {kl_divergence:.4f}\n"
-        writer.add_text(f'Final report/{split}', MARKDOWN_BREAKLINE_REGEX.sub(r'\1<br/>\2', output_report))
+        writer.add_text(f'Final report/{split}',  f"<pre>{output_report}</pre>")
 
         return output_report
 

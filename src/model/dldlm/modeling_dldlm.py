@@ -141,7 +141,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             if reduction:
                 lm_loss = lm_loss.mean()
             if kwargs.get('lm_loss', self.config.lm_loss):
-                loss += kwargs.get('lm_loss_weight', self.config.lm_loss_weight) * lm_loss
+                weight = torch.tensor(kwargs.get('lm_loss_weight', self.config.lm_loss_weight), device=self.device)
+                loss += weight * lm_loss
         else:
             lm_loss = None
         # Latent code loss
@@ -202,20 +203,23 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 posterior_latent_nll_loss = posterior_latent_nll_threshold_loss = None
             # Combine with loss if required
             if kwargs.get('kl_loss', self.config.kl_loss):
+                weight = torch.tensor(kwargs.get('kl_loss_weight', self.config.kl_loss_weight), device=self.device)
                 if self.config.kl_loss_threshold > -float('inf'):
-                    loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_threshold_loss
+                    loss += weight * latent_kl_threshold_loss
                 else:
-                    loss += kwargs.get('kl_loss_weight', self.config.kl_loss_weight) * latent_kl_div_loss
+                    loss += weight * latent_kl_div_loss
             if kwargs.get('behaviour_loss', self.config.behaviour_loss):
+                weight = torch.tensor(kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight), device=self.device)
                 if self.config.behaviour_loss_threshold > -float('inf'):
-                    loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_threshold_loss
+                    loss += weight * prior_latent_nll_threshold_loss
                 else:
-                    loss += kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight) * prior_latent_nll_loss
+                    loss += weight * prior_latent_nll_loss
             if kwargs.get('sampling_loss', self.config.sampling_loss):
+                weight = torch.tensor(kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight), device=self.device)
                 if self.config.sampling_loss_threshold > -float('inf'):
-                    loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_threshold_loss
+                    loss += weight * posterior_latent_nll_threshold_loss
                 else:
-                    loss += kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight) * posterior_latent_nll_loss
+                    loss += weight * posterior_latent_nll_loss
         else:
             latent_kl_div_loss = latent_kl_threshold_loss = None
             prior_latent_nll_loss = prior_latent_nll_threshold_loss = None
@@ -233,7 +237,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 prior_dist_entropy = prior_dist_entropy.mean()
             if kwargs.get('prior_entropy_loss', self.config.prior_entropy_loss):
                 # This goes in the other direction, I want it to be high to have a maximum entropy estimator
-                loss += kwargs.get('prior_entropy_loss_weight', self.config.prior_entropy_loss_weight) * prior_dist_entropy
+                weight = torch.tensor(kwargs.get('prior_entropy_loss_weight', self.config.prior_entropy_loss_weight), device = self.device)
+                loss += weight * prior_dist_entropy
         else:
             prior_dist_entropy = None
         # Posterior entropy
@@ -243,7 +248,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             if reduction:
                 posterior_dist_entropy = posterior_dist_entropy.mean()
             if kwargs.get('posterior_entropy_loss', self.config.posterior_entropy_loss):
-                loss += kwargs.get('posterior_entropy_loss_weight', self.config.posterior_entropy_loss_weight) * posterior_dist_entropy
+                weight = torch.tensor(kwargs.get('posterior_entropy_loss_weight', self.config.posterior_entropy_loss_weight), device = self.device)
+                loss += weight * posterior_dist_entropy
         else:
             posterior_dist_entropy = None
         # tf prediction loss
@@ -261,7 +267,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             if reduction:
                 tf_loss = tf_loss.mean()
             if kwargs.get('tf_loss', self.config.tf_loss):
-                loss += kwargs.get('tf_loss_weight', self.config.tf_loss_weight) * tf_loss
+                weight = torch.tensor(kwargs.get('tf_loss_weight', self.config.tf_loss_weight), device = self.device)
+                loss += weight * tf_loss
         else:
             tf_loss = None
 
@@ -427,6 +434,16 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             **kwargs
     ):
         # Decoding step
+
+        # Apply context dropout if required
+        # Attention
+        attention_mask = self._context_dropout(
+            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+            prior_token_id_idxs,
+            p=self.config.context_pdrop,
+            training=self.training
+        )
+
         # Latent decoding step
         # If model is misc process latent embedding and then the rest of the sequence
         if self.training:
@@ -818,13 +835,13 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
         except ValueError:
             response_start_idx = 1
 
-        # Attention
-        attention_mask = self._context_dropout(
-            attention_mask if attention_mask is not None else torch.ones_like(input_ids),
-            prior_token_id_idxs,
-            p=self.config.context_pdrop,
-            training=self.training
-        )
+        # # Attention
+        # attention_mask = self._context_dropout(
+        #     attention_mask if attention_mask is not None else torch.ones_like(input_ids),
+        #     prior_token_id_idxs,
+        #     p=self.config.context_pdrop,
+        #     training=self.training
+        # )
 
         # Encoding step
         (

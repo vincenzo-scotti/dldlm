@@ -1,5 +1,5 @@
 import random
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple, Set
 from collections import Counter
 import torch
 from model import DLDLMFullModel, DLDLMTokenizer
@@ -15,14 +15,24 @@ def groupby(data, key) -> Dict:
     return groups
 
 
-def get_latent_word_stats(labelled_samples: List[Dict]) -> Dict[str, Counter]:
+def get_latent_word_stats(labelled_samples: List[Dict], custom_stop_words: Optional[List[str]] = None) -> Dict[str, Tuple[Counter, Counter]]:
     # Group response by latent code and compute word counts
-    word_counts = {
-        label: sum((sample.get('tf-idf', sample['word_counts']) for sample in samples), Counter())
+    word_stats: Dict[str, Tuple[Counter, Counter]] = {
+        label: (
+            sum((sample.get('tf_idf', sample['word_counts']) for sample in samples), Counter()),
+            sum((sample.get('tf_idf_no_sw', sample['word_counts_no_sw']) for sample in samples), Counter()),
+        )
         for label, samples in groupby(labelled_samples, lambda x: x['latent']).items()  # FIXME
     }
+    # Remove custom stopwords if any
+    if custom_stop_words is not None and len(custom_stop_words) > 0:
+        custom_stop_words = set(custom_stop_words)
+        for sw in custom_stop_words:
+            for key, (c_sw, c_no_sw) in word_stats.items():
+                if sw in c_no_sw:
+                    c_no_sw.pop(sw)
 
-    return word_counts
+    return word_stats
 
 
 def get_traces(labelled_samples: List[Dict], window_size: Optional[int] = None) -> List[List[str]]:

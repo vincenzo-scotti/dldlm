@@ -16,7 +16,7 @@ dldlm:
       n_styles: &n_styles 16
       tf_size: 0
       init_tf_head: true
-      context_pdrop: 0.0
+      context_pdrop: 0.5
       corruption_rate: 0.0
       kl_loss: false
       behaviour_loss: true
@@ -61,6 +61,41 @@ evaluation:
       window_size: 4
     sample_responses:
       n_samples: 5
+    word_stats:
+      custom_stop_words:
+        - like
+        - yes
+        - know
+        - yeah
+        - think
+        - feel
+        - going
+        - mean
+        - kind
+        - right
+        - things
+        - want
+        - way
+        - time
+        - people
+        - sort
+        - thing
+        - good
+        - love
+        - said
+        - okay
+        - guess
+        - maybe
+        - lot
+        - oh
+        - little
+        - got
+        - work
+        - feeling
+        - actually
+        - need
+        - great
+        - thank
 
 data:
   corpora_dir_path: ./resources/data/raw/
