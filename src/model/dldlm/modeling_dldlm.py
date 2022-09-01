@@ -301,6 +301,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
+            corruption_mask: Optional[torch.FloatTensor] = None
     ) -> DLDLMModelOutput:
         # Fix empty past issue
         if past_key_values is not None and len(past_key_values) == 0:
@@ -311,6 +312,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             position_ids = attention_mask.cumsum(dim=-1).long() - attention_mask.long()
             if past_key_values is not None:
                 position_ids = position_ids[:, past_key_values[0][0].size(2):]
+        # Apply corruption mask if required
+        if corruption_mask is not None:
+            input_embeds = self.transformer.wte(input_ids) * corruption_mask
+            input_ids = None
 
         transformer_outputs = self.transformer(
             input_ids=input_ids,
@@ -353,7 +358,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
     ):
         # Encoding step
         # Apply corruption to input mask
-        attention_mask = self._input_corruption(
+        corruption_mask = self._input_corruption_mask(
             attention_mask if attention_mask is not None else torch.ones_like(input_ids),
             prior_token_id_idxs,
             posterior_token_id_idxs,
@@ -371,7 +376,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             head_mask=head_mask,
             use_cache=True,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states
+            output_hidden_states=output_hidden_states,
+            corruption_mask=corruption_mask
         )
         past_key_values = analysis_hidden_outputs.past_key_values
         analysis_last_hidden_state = analysis_hidden_outputs.last_hidden_state
@@ -640,30 +646,27 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             )
 
     @staticmethod
-    def _input_corruption(
+    def _input_corruption_mask(
             attention_mask: torch.LongTensor,
             prior_idxs: Tuple[torch.Tensor],
             posterior_idxs: Tuple[torch.Tensor],
             p: float = 0.5,
-            training: bool = True,
-            inplace: bool = False
-    ) -> torch.LongTensor:
+            training: bool = True
+    ) -> Optional[torch.FloatTensor]:
         # Check if it's misc or not
         if training and p > 0.0:
             # Create corruption mask
-            corrupted_attention_mask = torch.zeros_like(attention_mask)
-            corrupted_attention_mask[attention_mask.bool()] = (
+            corruption_mask = torch.zeros_like(attention_mask)
+            corruption_mask[attention_mask.bool()] = (
                     torch.rand_like(attention_mask[attention_mask.bool()].float()) >= p
-            ).long()
+            ).float()
             # Avoid corrupting prior and posterior tokens
-            corrupted_attention_mask[prior_idxs] = 1
-            corrupted_attention_mask[posterior_idxs] = 1
-            # Zero out attention mask of dropped contexts
-            if not inplace:
-                attention_mask = attention_mask.clone()
-            attention_mask *= corrupted_attention_mask
+            corruption_mask[prior_idxs] = 1.
+            corruption_mask[posterior_idxs] = 1
+        else:
+            corruption_mask = None
         # Return attention mask
-        return attention_mask
+        return corruption_mask
 
     @staticmethod
     def _context_dropout(
@@ -834,14 +837,6 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
                 "Responses must be aligned (start from same position) to use this model."
         except ValueError:
             response_start_idx = 1
-
-        # # Attention
-        # attention_mask = self._context_dropout(
-        #     attention_mask if attention_mask is not None else torch.ones_like(input_ids),
-        #     prior_token_id_idxs,
-        #     p=self.config.context_pdrop,
-        #     training=self.training
-        # )
 
         # Encoding step
         (
