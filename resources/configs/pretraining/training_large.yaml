@@ -16,7 +16,7 @@ dldlm:
       n_styles: &n_styles 16
       tf_size: 0
       init_tf_head: true
-      context_pdrop: 0.5
+      context_pdrop: 0.0
       corruption_rate: 0.0
       kl_loss: false
       behaviour_loss: true
@@ -43,11 +43,11 @@ optimizer:
   n_epochs: 5
   max_gradient_norm: 1.0
 
-# lr_scheduler:
-#   lr: *lr
-#   lr_start: 0.0
-#   lr_stop: 0.0
-#   warmup: 4096
+lr_scheduler:
+  lr: *lr
+  lr_start: 0.0
+  lr_stop: 0.0
+  warmup: 4096
 
 beta_scheduler: {}
 

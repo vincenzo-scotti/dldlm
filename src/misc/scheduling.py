@@ -111,8 +111,6 @@ class BetaCyclicalAnnealer:
         self.current_beta_idx: int = 0
 
     def get_beta(self) -> float:
-        self.current_beta_idx
-
         if self.current_beta_idx > self.steps:
             raise IndexError()
 

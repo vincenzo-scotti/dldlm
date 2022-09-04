@@ -301,7 +301,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
-            corruption_mask: Optional[torch.FloatTensor] = None
+            corruption_mask: Optional[torch.BoolTensor] = None
     ) -> DLDLMModelOutput:
         # Fix empty past issue
         if past_key_values is not None and len(past_key_values) == 0:
@@ -314,7 +314,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 position_ids = position_ids[:, past_key_values[0][0].size(2):]
         # Apply corruption mask if required
         if corruption_mask is not None:
-            input_embeds = self.transformer.wte(input_ids) * corruption_mask
+            input_embeds = self.transformer.wte(input_ids)
+            input_embeds[corruption_mask] = 0.  # Faster than multiplication
             input_ids = None
 
         transformer_outputs = self.transformer(
@@ -652,17 +653,17 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             posterior_idxs: Tuple[torch.Tensor],
             p: float = 0.5,
             training: bool = True
-    ) -> Optional[torch.FloatTensor]:
+    ) -> Optional[torch.BoolTensor]:  # NOTE true means that position will be corrupted
         # Check if it's misc or not
         if training and p > 0.0:
             # Create corruption mask
             corruption_mask = torch.zeros_like(attention_mask)
             corruption_mask[attention_mask.bool()] = (
-                    torch.rand_like(attention_mask[attention_mask.bool()].float()) >= p
-            ).float()
+                    torch.rand_like(attention_mask[attention_mask.bool()].float()) < p  # Il lower than p then corrupt
+            ).bool()
             # Avoid corrupting prior and posterior tokens
-            corruption_mask[prior_idxs] = 1.
-            corruption_mask[posterior_idxs] = 1
+            corruption_mask[prior_idxs] = False
+            corruption_mask[posterior_idxs] = False
         else:
             corruption_mask = None
         # Return attention mask
@@ -683,7 +684,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             context_mask[sep_idxs] = 1
             context_mask = (-context_mask.cumsum(dim=-1) + 1).bool()
             # Vector of 1 and 0 values of the same size of the batch size (represents dropped contexts)
-            dropout_mask = (torch.rand((attention_mask.size(0), 1), device=context_mask.device) >= p).long()
+            dropout_mask = (torch.rand((attention_mask.size(0), 1), device=context_mask.device) >= p).long()  # If greater than p keep
             # Zero out attention mask of dropped contexts
             if not inplace:
                 attention_mask = attention_mask.clone()

@@ -25,7 +25,7 @@ class DLDLMConfig(GPT2Config):
 
             unconditioned: bool = False,
             context_pdrop: float = 0.5,
-            corruption_rate: float = 0.2,
+            corruption_rate: float = 0.1,
             do_sample_latent: bool = True,
             fixed_prior: bool = False,
             detach_posterior: bool = False,
