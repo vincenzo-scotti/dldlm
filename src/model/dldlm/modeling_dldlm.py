@@ -341,6 +341,16 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
 
         return output
 
+    def _compute_latent_logits(self, logits: torch.FloatTensor):
+        # Latent mask to prevent using common tokens
+        latent_mask = torch.zeros_like(logits)
+        latent_mask[:, self.config.latent_token_ids] = 1.
+        latent_mask = torch.log(latent_mask)
+        # Normalisation value to enforce numerical stability in output
+        shift = logits[:, self.config.latent_token_ids].max().detach()
+        # Compute logits with normalisation trick
+        return logits + latent_mask - shift
+
     def _encode(
             self,
             input_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
@@ -866,14 +876,10 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             output_hidden_states=output_hidden_states
         )
         # Compute latent logits
-        # Latent mask to prevent using common tokens
-        latent_mask = torch.zeros((1, self.config.vocab_size), device=device)
-        latent_mask[:, self.config.latent_token_ids] = 1.
-        latent_mask = torch.log(latent_mask)
         # Prior
-        prior_logits = self.lm_head(prior_last_hidden_state) + latent_mask
+        prior_logits = self._compute_latent_logits(self.lm_head(prior_last_hidden_state))
         # Posterior
-        posterior_logits = self.lm_head(posterior_last_hidden_state) + latent_mask
+        posterior_logits = self._compute_latent_logits(self.lm_head(posterior_last_hidden_state))
 
         # Decoding step
         (
