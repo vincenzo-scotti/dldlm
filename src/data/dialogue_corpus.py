@@ -16,7 +16,7 @@ from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWiki
 from .corpora import Hope, CounsellingAndPsychotherapyCorpus
 
 from model import DLDLMTokenizer
-from misc import get_word_counts, tf_idf
+from misc import get_word_counts, tf_idf, sentiment
 
 from typing import List, Tuple, Dict, Optional
 
@@ -53,6 +53,7 @@ class DLDLMCorpus(Dataset):
             compute_tf_idf: bool = True,
             incremental_tf_idf: bool = True,
             min_df: int = 2,
+            compute_sentiment: bool = False,
             concurrent_backend: str = 'threading',
             n_jobs: int = -1,
             verbosity_level: int = 2,
@@ -97,6 +98,8 @@ class DLDLMCorpus(Dataset):
             self.compute_tf_idf: bool = compute_tf_idf
             self.incremental_tf_idf: bool = incremental_tf_idf and compute_tf_idf
             self.count_word_tokens: bool = count_word_tokens or self.compute_tf_idf
+            # Sentiment analysis flags
+            self.compute_sentiment: bool = compute_sentiment
             # Create static dictionaries if required
             if self.incremental_tf_idf:
                 self.word_doc_counts = dict()
@@ -149,6 +152,9 @@ class DLDLMCorpus(Dataset):
                     sample['word_counts_no_sw'], word_document_counts, n_docs, min=self.min_df
                 )
 
+            def get_sentiment_class(sample):
+                sample['sentiment'] = sentiment(sample['response'])
+
             # Count word tokens in needed
             if self.count_word_tokens:
                 Parallel(verbose=self.verbosity_level)(
@@ -177,6 +183,11 @@ class DLDLMCorpus(Dataset):
                 # Compute TF-IDF
                 Parallel(verbose=self.verbosity_level)(
                     delayed(get_word_tf_idf_scores_wrapper)(sample) for sample in self.data
+                )
+            # Possibly compute sentiment
+            if self.compute_sentiment:
+                Parallel(verbose=self.verbosity_level)(
+                    delayed(get_sentiment_class)(sample) for sample in self.data
                 )
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
