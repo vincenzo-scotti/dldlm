@@ -1,12 +1,11 @@
 import os
 import sys
 from shutil import copy2, move
-import re
 import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
 import yaml
-from typing import Optional, Union, Tuple, List, Dict, Pattern
+from typing import Optional, Union, Tuple, List, Dict
 
 import random
 import numpy as np
@@ -87,7 +86,7 @@ best_model_checkpoint_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, checkpoint_gradient, writer, mem_failures
+    global random_seed, device, mixed_precision, checkpoint_gradient, writer
     global model_configs, tokenizer_configs, corpus_configs, \
         optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
