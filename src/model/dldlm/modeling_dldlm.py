@@ -667,7 +667,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Check if it's misc or not
         if training and p > 0.0:
             # Create corruption mask
-            corruption_mask = torch.zeros_like(attention_mask)
+            corruption_mask = torch.zeros_like(attention_mask, dtype=torch.bool)
             corruption_mask[attention_mask.bool()] = (
                     torch.rand_like(attention_mask[attention_mask.bool()].float()) < p  # Il lower than p then corrupt
             ).bool()
