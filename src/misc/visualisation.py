@@ -58,7 +58,7 @@ def plot_word_stats(
 ):
     # TODO fix issue with empty counter and additional axes that are not used
     figure = dict()
-    for i, (stat, stat_tag) in enumerate((('with stop-word', 'w_sw'), ('without stop words', 'wo_sw'))):
+    for i, (stat, stat_tag) in enumerate((('TF', 'tf'), ('TF-IDF', 'tf_idf'))):
         n_items = len(data)
         n_cols = 4
         n_rows = int(math.ceil(n_items / n_cols))
