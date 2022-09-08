@@ -111,7 +111,7 @@ class AlphaLinearScheduler:
             self.period = self.m = None
         self.current_alpha_idx: int = 0
 
-    def get_beta(self) -> float:
+    def get_alpha(self) -> float:
         if self.current_alpha_idx > self.steps:
             raise IndexError()
 
