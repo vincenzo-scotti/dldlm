@@ -1,5 +1,5 @@
 import random
-from typing import Optional, List, Dict, Tuple, Set
+from typing import Optional, List, Dict, Tuple
 from collections import Counter
 import torch
 from model import DLDLMFullModel, DLDLMTokenizer
@@ -19,8 +19,8 @@ def get_latent_word_stats(labelled_samples: List[Dict], custom_stop_words: Optio
     # Group response by latent code and compute word counts
     word_stats: Dict[str, Tuple[Counter, Counter]] = {
         label: (
-            sum((sample.get('tf_idf', sample['word_counts']) for sample in samples), Counter()),
-            sum((sample.get('tf_idf_no_sw', sample['word_counts_no_sw']) for sample in samples), Counter()),
+            sum((sample['tf'] for sample in samples), Counter()),
+            sum((sample['tf_idf'] for sample in samples), Counter())
         )
         for label, samples in groupby(labelled_samples, lambda x: x['latent']).items()  # FIXME
     }
@@ -96,3 +96,7 @@ def get_response_samples(
 
 def get_latents_count(labelled_samples: List[Dict]):
     return Counter(sample['latent'] for sample in labelled_samples)
+
+
+def get_latents_correlation_matrix(labelled_samples: List[Dict]):
+    ...
