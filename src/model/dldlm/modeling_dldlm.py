@@ -28,9 +28,9 @@ _CONFIG_FOR_DOC = "DLDLMConfig"
 _TOKENIZER_FOR_DOC = "DLDLMTokenizer"
 
 DLDLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "dldlm-distilled",
     "dldlm-small",
     "dldlm-medium",
+    "dldlm-large",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 ]
 
@@ -42,6 +42,8 @@ class DLDLMLossFunctionOutput(ModelOutput):
     lm_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_kl_div_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     latent_kl_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    prior_latent_kl_div_tgt: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    posterior_latent_kl_div_tgt: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     elbo: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_latent_nll_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     prior_latent_nll_threshold_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
@@ -116,6 +118,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             prior_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             posterior_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             latent: Optional[torch.Tensor] = None,  # Shape (batch_size,)
+            latent_tgt_dist: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             tf_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, tf_size)
             batch_size: Optional[int] = None,
             **kwargs
@@ -149,7 +152,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         if prior_logits is not None and (posterior_logits is not None or latent is not None):
             # KL Divergence
             if posterior_logits is not None:
-                # Prior from posterior target KL divergence
+                # Prior from posterior target KL divergence - i.e., reverse KL divergence
                 if kwargs.get('fixed_prior', self.config.fixed_prior):
                     latent_kl_div_loss: Optional[torch.Tensor] = F.kl_div(
                         F.log_softmax(torch.full_like(
@@ -177,7 +180,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_kl_threshold_loss = latent_kl_threshold_loss.mean()
             else:
                 latent_kl_div_loss = latent_kl_threshold_loss = None
-            # Posterior negative Log-Likelihood
+            # Prior negative Log-Likelihood
             if latent is not None:
                 prior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(prior_logits, latent, reduction='none')
                 # Apply thresholding if required
@@ -189,6 +192,17 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     prior_latent_nll_threshold_loss = prior_latent_nll_threshold_loss.mean()
             else:
                 prior_latent_nll_loss = prior_latent_nll_threshold_loss = None
+            # KL of prior from target distribution
+            if latent_tgt_dist is not None:
+                prior_latent_kl_div_tgt: Optional[torch.Tensor] = F.kl_div(
+                    F.log_softmax(prior_logits, -1)[:, self.config.latent_token_ids],
+                    latent_tgt_dist.log(),
+                    reduction='none',
+                    log_target=True
+                )
+            else:
+                prior_latent_kl_div_tgt = None
+            # Posterior negative Log-Likelihood
             if posterior_logits is not None and latent is not None:
                 posterior_latent_nll_loss: Optional[torch.Tensor] = F.cross_entropy(
                     posterior_logits, latent, reduction='none'
@@ -201,27 +215,46 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     posterior_latent_nll_threshold_loss = posterior_latent_nll_threshold_loss.mean()
             else:
                 posterior_latent_nll_loss = posterior_latent_nll_threshold_loss = None
+            # KL of posterior from target distribution
+            if posterior_logits is not None and latent_tgt_dist is not None:
+                posterior_latent_kl_div_tgt: Optional[torch.Tensor] = F.kl_div(
+                    F.log_softmax(posterior_logits, -1)[:, self.config.latent_token_ids],
+                    latent_tgt_dist.log(),
+                    reduction='none',
+                    log_target=True
+                )
+            else:
+                posterior_latent_kl_div_tgt = None
+            # Get blending parameter
+            mixing_weight = torch.tensor(kwargs.get('latent_mixing_weight', self.config.latent_mixing_weight), device=self.device)
             # Combine with loss if required
             if kwargs.get('kl_loss', self.config.kl_loss):
                 weight = torch.tensor(kwargs.get('kl_loss_weight', self.config.kl_loss_weight), device=self.device)
                 if self.config.kl_loss_threshold > -float('inf'):
-                    loss += weight * latent_kl_threshold_loss
+                    loss += weight * (1 - mixing_weight) * latent_kl_threshold_loss
                 else:
-                    loss += weight * latent_kl_div_loss
+                    loss += weight * (1 - mixing_weight) * latent_kl_div_loss
+                if mixing_weight > 0.0 and prior_latent_kl_div_tgt is not None and posterior_latent_kl_div_tgt is not None:
+                    loss += weight * mixing_weight * (prior_latent_kl_div_tgt + posterior_latent_kl_div_tgt)
             if kwargs.get('behaviour_loss', self.config.behaviour_loss):
                 weight = torch.tensor(kwargs.get('behaviour_loss_weight', self.config.behaviour_loss_weight), device=self.device)
                 if self.config.behaviour_loss_threshold > -float('inf'):
-                    loss += weight * prior_latent_nll_threshold_loss
+                    loss += weight * (1 - mixing_weight) * prior_latent_nll_threshold_loss
                 else:
-                    loss += weight * prior_latent_nll_loss
+                    loss += weight * (1 - mixing_weight) * prior_latent_nll_loss
+                if mixing_weight > 0.0 and prior_latent_kl_div_tgt is not None:
+                    loss += weight * mixing_weight * prior_latent_kl_div_tgt
             if kwargs.get('sampling_loss', self.config.sampling_loss):
                 weight = torch.tensor(kwargs.get('sampling_loss_weight', self.config.sampling_loss_weight), device=self.device)
                 if self.config.sampling_loss_threshold > -float('inf'):
-                    loss += weight * posterior_latent_nll_threshold_loss
+                    loss += weight * (1 - mixing_weight) * posterior_latent_nll_threshold_loss
                 else:
-                    loss += weight * posterior_latent_nll_loss
+                    loss += weight * (1 - mixing_weight) * posterior_latent_nll_loss
+                if mixing_weight > 0.0 and posterior_latent_kl_div_tgt is not None:
+                    loss += weight * mixing_weight * posterior_latent_kl_div_tgt
         else:
             latent_kl_div_loss = latent_kl_threshold_loss = None
+            prior_latent_kl_div_tgt = posterior_latent_kl_div_tgt = None
             prior_latent_nll_loss = prior_latent_nll_threshold_loss = None
             posterior_latent_nll_loss = posterior_latent_nll_threshold_loss = None
         # ELBO
@@ -277,6 +310,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             lm_loss=lm_loss,
             latent_kl_div_loss=latent_kl_div_loss,
             latent_kl_threshold_loss=latent_kl_threshold_loss,
+            prior_latent_kl_div_tgt=prior_latent_kl_div_tgt,
+            posterior_latent_kl_div_tgt=posterior_latent_kl_div_tgt,
             prior_latent_nll_loss=prior_latent_nll_loss,
             prior_latent_nll_threshold_loss=prior_latent_nll_threshold_loss,
             posterior_latent_nll_loss=posterior_latent_nll_loss,
@@ -809,6 +844,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             head_mask=None,
             labels: Optional[torch.LongTensor] = None,  # Shape (batch_size,)
+            latent_tgt_dist: Optional[torch.FloatTensor] = None,  # Shape (batch_size, num_styles)
             use_cache=None,
             output_attentions=None,
             output_hidden_states=None,
@@ -919,6 +955,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             prior_logits=prior_logits,
             posterior_logits=posterior_logits,
             latent=latent,
+            latent_tgt_dist=latent_tgt_dist,
             tf_logits=tf_logits,
             batch_size=batch_size,
             **kwargs

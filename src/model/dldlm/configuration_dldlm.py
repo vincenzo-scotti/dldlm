@@ -6,9 +6,9 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 DLDLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "dldlm-distilled": "https://huggingface.co/vincenzo-scotti/dldlm-distilled/resolve/main/config.json",
     "dldlm-small": "https://huggingface.co/vincenzo-scotti/dldlm-small/resolve/main/config.json",
     "dldlm-medium": "https://huggingface.co/vincenzo-scotti/dldlm-medium/resolve/main/config.json",
+    "dldlm-large": "https://huggingface.co/vincenzo-scotti/dldlm-large/resolve/main/config.json",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 }
 
@@ -48,6 +48,7 @@ class DLDLMConfig(GPT2Config):
             lm_loss_weight: float = 1.0,
             kl_loss_weight: float = 1.0,
             kl_loss_threshold: float = -float('inf'),
+            latent_mixing_weight: float = 0.0,
             behaviour_loss_weight: float = 1.0,
             behaviour_loss_threshold: float = -float('inf'),
             sampling_loss_weight: float = 1.0,
@@ -89,6 +90,7 @@ class DLDLMConfig(GPT2Config):
         self.lm_loss_weight: float = lm_loss_weight
         self.kl_loss_weight: float = kl_loss_weight
         self.kl_loss_threshold: float = kl_loss_threshold
+        self.latent_mixing_weight: float = latent_mixing_weight
         self.behaviour_loss_weight: float = behaviour_loss_weight
         self.behaviour_loss_threshold: float = behaviour_loss_threshold
         self.sampling_loss_weight: float = sampling_loss_weight

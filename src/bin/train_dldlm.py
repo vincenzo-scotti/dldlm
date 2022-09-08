@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.cuda.amp import GradScaler
-from misc import LinearLR, BetaCyclicalAnnealer
+from misc import LinearLR, AlphaLinearScheduler, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
 from data import DLDLMCorpus, DataSetSplit
@@ -33,8 +33,10 @@ KL_DIVERGENCE_LOSS_KEY = 'latent_kl_div_loss'
 LOSS_KEYS_MAPPING = {
     'loss': 'Loss',
     'lm_loss': 'Language Modelling',
-    'latent_kl_div_loss': 'Latent KL Divergence',
-    'latent_kl_threshold_loss': 'Latent KL Divergence with threshold',
+    'latent_kl_div_loss': 'Reverse Latent KL Divergence',
+    'latent_kl_threshold_loss': 'Reverse Latent KL Divergence with threshold',
+    'prior_latent_kl_div_tgt': 'Latent Prior KL Divergence from Target Distribution',
+    'posterior_latent_kl_div_tgt': 'Latent Posterior KL Divergence from Target Distribution',
     'prior_latent_nll_loss': 'Latent Prior Negative Log-Likelihood',
     'prior_latent_nll_threshold_loss': 'Latent Prior Negative Log-Likelihood with threshold',
     'posterior_latent_nll_loss': 'Latent Posterior Negative Log-Likelihood',
@@ -68,6 +70,8 @@ optimizer: Optimizer
 scaler: Optional[GradScaler] = None
 lr_scheduler_configs: Optional[Dict] = None
 lr_scheduler: Optional[LinearLR] = None
+alpha_scheduler_configs: Optional[Dict] = None
+alpha_scheduler: Optional[AlphaLinearScheduler] = None
 beta_scheduler_configs: Optional[Dict] = None
 beta_scheduler: Optional[BetaCyclicalAnnealer] = None
 evaluation_configs: Dict
@@ -88,7 +92,7 @@ def init_environment(config_file_path: str):
     # Declare global variables
     global random_seed, device, mixed_precision, checkpoint_gradient, writer
     global model_configs, tokenizer_configs, corpus_configs, \
-        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, evaluation_configs
+        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, alpha_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
         count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path, \
         model_checkpoint_path, best_model_checkpoint_path
@@ -189,6 +193,7 @@ def init_environment(config_file_path: str):
     tokenizer_configs = configs['dldlm']['tokeniser']
     optimizer_configs = configs['optimizer']
     lr_scheduler_configs = configs.get('lr_scheduler')
+    alpha_scheduler_configs = configs.get('alpha_scheduler')
     beta_scheduler_configs = configs.get('beta_scheduler')
     evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
@@ -271,22 +276,31 @@ def init_data_loaders():
 
 def init_optimisation_tools():
     # Declare global variables
-    global optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, beta_scheduler, \
-        mixed_precision, optimizer, scaler, lr_scheduler, model, corpus_loaders
+    global scaler, optimizer_configs, optimizer, \
+        lr_scheduler_configs, lr_scheduler, \
+        alpha_scheduler_configs, alpha_scheduler, \
+        beta_scheduler_configs, beta_scheduler
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
     # Get total number of training steps
     steps = (len(corpus_loaders[DataSetSplit('train')]) * optimizer_configs['n_epochs']) + 1
+    # Get total number of epochs
+    n_epochs = optimizer_configs['n_epochs']
     # If using LR scheduling create instance of scheduler
-    if lr_scheduler_configs:
+    if lr_scheduler_configs is not None:
         # Update learning rate scheduler configs with missing info
         lr_scheduler_configs['lr_steps'] = steps
         # Create learning rate scheduler instance
         lr_scheduler = LinearLR(optimizer, **lr_scheduler_configs)
         logging.info("Learning rate scheduler instantiated")
-    # If using LR scheduling create instance of scheduler
-    if beta_scheduler_configs:
+    # If using alpha scheduling create instance of scheduler
+    if alpha_scheduler_configs is not None:
+        # Create alpha scheduler
+        alpha_scheduler = AlphaLinearScheduler(n_epochs, **alpha_scheduler_configs)
+        logging.info("Alpha linear scheduler instantiated")
+    # If using beta scheduling create instance of scheduler
+    if beta_scheduler_configs is not None:
         # Create beta scheduler
         beta_scheduler = BetaCyclicalAnnealer(steps, **beta_scheduler_configs)
         logging.info("Beta cyclical annealing scheduler instantiated")
@@ -301,6 +315,7 @@ def process_mini_batch(
         input_ids: torch.LongTensor,  # Shape (batch_size, )
         attention_mask: torch.LongTensor,  # Shape (batch_size, length)
         labels: torch.LongTensor,  # Shape (batch_size, response_length)
+        latent_p_dist: torch.FloatTensor,  # Shape (batch_size, n_styles)
         raw_data: List[Dict]
 ) -> Union[Tuple[torch.Tensor, Dict[str, torch.Tensor]], Tuple[torch.Tensor, Dict[str, torch.Tensor], List[Dict]]]:
     # Declare global variables
@@ -320,6 +335,9 @@ def process_mini_batch(
     input_ids = input_ids.to(device)
     attention_mask = attention_mask.to(device)
     labels = labels.to(device)
+    latent_p_dist = latent_p_dist.to(device) if latent_p_dist is not None else None
+    # Alpha mixing factor
+    alpha = alpha_scheduler.get_alpha() if model.training and alpha_scheduler is not None else 0.0
     # Beta scaling factor
     beta = beta_scheduler.get_beta() if model.training and beta_scheduler is not None else 1.0
     # Loop over sub_batches to fit in memory
@@ -331,6 +349,8 @@ def process_mini_batch(
                 input_ids=input_ids[s_idx:e_idx],
                 attention_mask=attention_mask[s_idx:e_idx],
                 labels=labels[s_idx:e_idx],
+                latent_tgt_dist=latent_p_dist[s_idx:e_idx] if latent_p_dist is not None else None,
+                latent_mixing_weight=alpha,
                 kl_loss_weight=beta,
                 reduction=model.training
             )
@@ -687,6 +707,9 @@ def fit_model():
         if checkpoint_gradient:
             model.gradient_checkpointing_enable()
         logging.info("Models saved using utilities")
+        # Update alpha
+        if alpha_scheduler is not None:
+            alpha_scheduler.step()
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
     # Close training
