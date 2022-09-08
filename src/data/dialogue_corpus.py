@@ -7,6 +7,9 @@ from joblib import Parallel
 from joblib import delayed
 from joblib import parallel_backend
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+
 from collections import Counter
 
 import torch
@@ -16,7 +19,7 @@ from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWiki
 from .corpora import Hope, CounsellingAndPsychotherapyCorpus
 
 from model import DLDLMTokenizer
-from misc import get_word_counts, tf_idf, sentiment
+from misc import sentiment
 
 from typing import List, Tuple, Dict, Optional
 
@@ -34,8 +37,7 @@ CORPORA: Dict = {
 # TODO add class for fine tuning
 class DLDLMCorpus(Dataset):
     # Additional static attributes (used in incremental TF-IDF computation)
-    word_doc_counts: Optional[Dict[DataSetSplit, Counter]] = None
-    n_docs: Optional[Dict[DataSetSplit, int]] = None
+    docs: Optional[List[str]] = None
 
     def __init__(
             self,
@@ -46,12 +48,15 @@ class DLDLMCorpus(Dataset):
             *args,
             corpus_prefix: str = 'pretraining_corpus',
             corpus_list: Optional[List[str]] = None,
+            latent_init: bool = False,
+            lda_kwargs: Optional[Dict] = None,
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
             latent: bool = True,
             count_word_tokens: bool = False,
             compute_tf_idf: bool = True,
-            incremental_tf_idf: bool = True,
+            incremental_stats: bool = True,
+            max_df: float = 0.95,
             min_df: int = 2,
             compute_sentiment: bool = False,
             concurrent_backend: str = 'threading',
@@ -72,6 +77,10 @@ class DLDLMCorpus(Dataset):
         self.corpus_cache_file_path: str = os.path.join(cache_dir_path, f'{corpus_prefix}_{data_set_split}.pbz2')
         # Data
         self.data: List[Dict]
+
+        # Latent initialisation parameters (if used)
+        self.latent_init: bool = latent_init
+        self.lda_kwargs: Optional[Dict] = lda_kwargs
 
         # Generate cache if needed
         if not os.path.exists(self.corpus_cache_file_path) or reload_cache:
@@ -96,16 +105,17 @@ class DLDLMCorpus(Dataset):
                 self.corpus_list: List[str] = corpus_list
             # Word count flags
             self.compute_tf_idf: bool = compute_tf_idf
-            self.incremental_tf_idf: bool = incremental_tf_idf and compute_tf_idf
+            self.incremental_stats: bool = incremental_stats and compute_tf_idf
             self.count_word_tokens: bool = count_word_tokens or self.compute_tf_idf
             # Sentiment analysis flags
             self.compute_sentiment: bool = compute_sentiment
             # Create static dictionaries if required
-            if self.incremental_tf_idf:
-                self.word_doc_counts = dict()
-                self.n_docs = dict()
+            if self.incremental_stats:
+                self.docs = list()
             # Other TF-IDF params
+            self.max_df: float = max_df
             self.min_df: int = min_df
+
             # Load all corpora and generate cache
             self._generate_data_cache(*args, **kwargs)
         # Else simply load the cache
@@ -139,55 +149,72 @@ class DLDLMCorpus(Dataset):
         # Compute additional info if needed
         with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
             # Helper functions
-            def get_word_counts_wrapper(sample):
-                sample['word_counts'] = get_word_counts(sample['response'])
-                sample['word_counts_no_sw'] = get_word_counts(sample['response'], remove_stopwords=True)
+            def set_tf_idf(sample, tf, words, key):
+                sample[key] = Counter({word: tf[idx] for idx, word in zip(zip(*tf.nonzero()), words)})
 
-            def get_document_counts_wrapper(sample):
-                return Counter(sample['word_counts'].keys())
+            def set_latent_p_dist(sample, p_dist):
+                sample['latent_p_dist'] = p_dist.tolist()
 
-            def get_word_tf_idf_scores_wrapper(sample):
-                sample['tf_idf'] = tf_idf(sample['word_counts'], word_document_counts, n_docs, min=self.min_df)
-                sample['tf_idf_no_sw'] = tf_idf(
-                    sample['word_counts_no_sw'], word_document_counts, n_docs, min=self.min_df
-                )
-
-            def get_sentiment_class(sample):
+            def set_sentiment(sample):
                 sample['sentiment'] = sentiment(sample['response'])
 
-            # Count word tokens in needed
+            # Create document collection
+            docs = [sample['response'] for sample in self.data]
+            # Possibly add document collection to global collection
+            if self.docs is not None:
+                self.docs += docs
+                docs = self.docs
+
+            # Compute TF if required
             if self.count_word_tokens:
+                # Create vectoriser instance
+                tf_vectoriser = TfidfVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english", use_idf=False)
+                # Fit vectoriser on the documents and gather counts
+                tf_matrix = tf_vectoriser.fit_transform(docs)[-len(self.data):]
+                # Assign counts to samples
                 Parallel(verbose=self.verbosity_level)(
-                    delayed(get_word_counts_wrapper)(sample) for sample in self.data
+                    delayed(set_tf_idf)(sample, tf, words, 'tf')
+                    for sample, tf, words
+                    in zip(self.data, tf_matrix, tf_vectoriser.inverse_transform(tf_matrix))
                 )
-            # Possibly compute TF-IDF
+            else:
+                tf_vectoriser = None
+                tf_matrix = None
+
+            # Compute TF-IDF if required
             if self.compute_tf_idf:
-                # Count word document instances
-                word_document_counts: Counter = sum(
-                    Parallel(verbose=self.verbosity_level)(
-                        delayed(get_document_counts_wrapper)(sample) for sample in self.data
-                    ), Counter()
-                )
-                # Count number of documents
-                n_docs = len(self.data)
-                # Possibly update with other split counts
-                if self.incremental_tf_idf:
-                    if self.data_set_split == DataSetSplit.VALIDATION:
-                        word_document_counts.update(self.word_doc_counts.get(DataSetSplit('validation'), Counter()))
-                        n_docs += self.n_docs.get(DataSetSplit('validation'), 0)
-                    elif self.data_set_split == DataSetSplit.TEST:
-                        word_document_counts.update(self.word_doc_counts.get(DataSetSplit('test'), Counter()))
-                        n_docs += self.n_docs.get(DataSetSplit('test'), 0)
-                    self.word_doc_counts[self.data_set_split] = word_document_counts
-                    self.n_docs[self.data_set_split] = n_docs
-                # Compute TF-IDF
+                # Create vectoriser instance
+                tf_idf_vectoriser = TfidfVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english")
+                # Fit vectoriser on the documents and gather counts
+                tf_idf_matrix = tf_idf_vectoriser.fit_transform(docs)[-len(self.data):]
+                # Assign counts to samples
                 Parallel(verbose=self.verbosity_level)(
-                    delayed(get_word_tf_idf_scores_wrapper)(sample) for sample in self.data
+                    delayed(set_tf_idf)(sample, tf_idf, words, 'tf_idf')
+                    for sample, tf_idf, words
+                    in zip(self.data, tf_idf_matrix, tf_idf_vectoriser.inverse_transform(tf_idf_matrix))
                 )
-            # Possibly compute sentiment
+
+            # Do latent initialisation if required
+            if self.latent_init:
+                # Compute tf required (otherwise re-use)
+                if tf_vectoriser is None or tf_matrix is None:
+                    # Create vectoriser instance
+                    tf_vectoriser = TfidfVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english", use_idf=False)
+                    # Fit vectoriser on the documents and gather counts
+                    tf_matrix = tf_vectoriser.fit_transform(docs)[-len(self.data):]
+                # LDA
+                lda = LatentDirichletAllocation(**self.lda_kwargs)
+                # Fit and compute p-dist
+                p_dist = lda.fit_transform(tf_matrix)
+                # Assign initial probabilities
+                Parallel(verbose=self.verbosity_level)(
+                    delayed(set_latent_p_dist)(sample, p) for sample, p in zip(self.data, p_dist)
+                )
+
+            # Compute sentiment if required
             if self.compute_sentiment:
                 Parallel(verbose=self.verbosity_level)(
-                    delayed(get_sentiment_class)(sample) for sample in self.data
+                    delayed(set_sentiment)(sample) for sample in self.data
                 )
         # Save compressed pickle file
         with bz2.BZ2File(self.corpus_cache_file_path, 'w') as f:
@@ -198,7 +225,7 @@ class DLDLMCorpus(Dataset):
         with bz2.BZ2File(self.corpus_cache_file_path, 'r') as f:
             self.data = pickle.load(f)
 
-    def collate(self, mini_batch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[Dict]]:
+    def collate(self, mini_batch) -> Tuple[torch.tensor, torch.tensor, torch.tensor, Optional[torch.tensor], List[Dict]]:
         # Encode context
         padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = 'left'
@@ -243,4 +270,10 @@ class DLDLMCorpus(Dataset):
             labels = label_encodings.input_ids
             labels[~label_encodings.attention_mask.bool()] = IGNORE_INDEX
 
-        return input_ids, attention_mask, labels, mini_batch
+        # Add latent initialisation proabilities if required
+        if self.latent_init:
+            latent_p_dist = torch.tensor([sample['latent_p_dist'] for sample in mini_batch])
+        else:
+            latent_p_dist = None
+
+        return input_ids, attention_mask, labels, latent_p_dist, mini_batch
