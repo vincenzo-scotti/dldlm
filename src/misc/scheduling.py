@@ -86,6 +86,48 @@ class LinearLR(torch.optim.lr_scheduler._LRScheduler):
         return [lr]
 
 
+class AlphaLinearScheduler:
+    def __init__(
+            self,
+            steps: int,
+            alpha: float = 1.0,
+            alpha_start: Optional[float] = None,
+            alpha_stop: Optional[float] = None,
+            period: Union[int, float] = 1.0
+    ):
+        assert isinstance(period, int) or 0. < period <= 1.
+
+        self.alpha: float = alpha
+        self.alpha_start: float = alpha_start if alpha_start is not None else alpha
+        self.alpha_stop: float = alpha_stop if alpha_stop is not None else alpha
+        self.steps: int = steps
+        if period > 0:  # If the period is null then the schedule is constant
+            if isinstance(period, float):
+                period = int(math.ceil(steps * period))
+            self.period: int = period
+            # Linear scheduler coefficient
+            self.m: float = (self.alpha_stop - self.alpha_start) / self.period
+        else:
+            self.period = self.m = None
+        self.current_alpha_idx: int = 0
+
+    def get_beta(self) -> float:
+        if self.current_alpha_idx > self.steps:
+            raise IndexError()
+
+        if self.m is not None:
+            if self.current_alpha_idx <= self.period:
+                alpha = self.alpha_start + (self.m * self.current_alpha_idx)
+            else:
+                alpha = self.alpha_stop
+        else:
+            alpha = self.alpha
+        return alpha
+
+    def step(self):
+        self.current_alpha_idx += 1
+
+
 class BetaCyclicalAnnealer:
     def __init__(
             self,
