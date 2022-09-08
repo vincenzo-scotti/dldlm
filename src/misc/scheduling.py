@@ -90,7 +90,7 @@ class AlphaLinearScheduler:
     def __init__(
             self,
             steps: int,
-            alpha: float = 1.0,
+            alpha: float = 0.0,
             alpha_start: Optional[float] = None,
             alpha_stop: Optional[float] = None,
             period: Union[int, float] = 1.0
