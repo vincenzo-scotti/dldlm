@@ -86,7 +86,6 @@ data:
       random_state: *random_seed
     max_context_length: 256
     max_response_length: 128
-    count_word_tokens: true
   splits:
     train:
       mini_batch_size: 128

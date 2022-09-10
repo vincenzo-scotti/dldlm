@@ -7,7 +7,7 @@ from joblib import Parallel
 from joblib import delayed
 from joblib import parallel_backend
 
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 
 from collections import Counter
@@ -53,12 +53,12 @@ class DLDLMCorpus(Dataset):
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
             latent: bool = True,
-            count_word_tokens: bool = False,
+            count_word_tokens: bool = True,
             compute_tf_idf: bool = True,
             incremental_stats: bool = True,
             max_df: float = 0.95,
             min_df: int = 2,
-            compute_sentiment: bool = False,
+            compute_sentiment: bool = True,
             concurrent_backend: str = 'threading',
             n_jobs: int = -1,
             verbosity_level: int = 2,
@@ -168,7 +168,7 @@ class DLDLMCorpus(Dataset):
             # Compute TF if required
             if self.count_word_tokens:
                 # Create vectoriser instance
-                tf_vectoriser = TfidfVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english", use_idf=False)
+                tf_vectoriser = CountVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english")
                 # Fit vectoriser on the documents and gather counts
                 tf_matrix = tf_vectoriser.fit_transform(docs)[-len(self.data):]
                 # Assign counts to samples
@@ -199,7 +199,7 @@ class DLDLMCorpus(Dataset):
                 # Compute tf required (otherwise re-use)
                 if tf_vectoriser is None or tf_matrix is None:
                     # Create vectoriser instance
-                    tf_vectoriser = TfidfVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english", use_idf=False)
+                    tf_vectoriser = CountVectorizer(max_df=self.max_df, min_df=self.min_df, stop_words="english")
                     # Fit vectoriser on the documents and gather counts
                     tf_matrix = tf_vectoriser.fit_transform(docs)[-len(self.data):]
                 # LDA

@@ -199,7 +199,9 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_tgt_dist.log(),
                     reduction='none',
                     log_target=True
-                )
+                ).sum(-1)
+                if reduction:
+                    prior_latent_kl_div_tgt = prior_latent_kl_div_tgt.mean()
             else:
                 prior_latent_kl_div_tgt = None
             # Posterior negative Log-Likelihood
@@ -222,7 +224,9 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                     latent_tgt_dist.log(),
                     reduction='none',
                     log_target=True
-                )
+                ).sum(-1)
+                if reduction:
+                    posterior_latent_kl_div_tgt = posterior_latent_kl_div_tgt.mean()
             else:
                 posterior_latent_kl_div_tgt = None
             # Get blending parameter
