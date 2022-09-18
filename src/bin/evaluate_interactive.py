@@ -5,15 +5,14 @@ import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
 import yaml
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
+import re
 
 import random
 import numpy as np
 import torch
-from torch.cuda.amp import autocast
 
 from model import DLDLMTokenizer, DLDLMFullModel
-
 
 # Variables to control model and evaluation parameters
 # Environment
@@ -29,8 +28,6 @@ pretrained_tokenizer: str
 tokenizer: DLDLMTokenizer
 # Experiment dir path
 current_experiment_dir_path: Optional[str] = None
-
-# TODO check out for beam sampling
 
 
 def init_environment(config_file_path: Optional[str]):
@@ -109,11 +106,6 @@ def load_model():
     logging.info("Model set in evaluation mode")
 
 
-def response_sorting_key(args):
-    _, ppl = args
-    return ppl
-
-
 def append_turn_to_conversation_file(text: str):
     global current_experiment_dir_path
     if current_experiment_dir_path is not None:
@@ -121,20 +113,46 @@ def append_turn_to_conversation_file(text: str):
             f.write(text + '\n')
 
 
-def get_context(context):
+def get_context_str(context) -> str:
     # Declare global variables
     global tokenizer, max_context_len
     # Get context string
-    context_str = '\n'.join(context)
+    context_str = tokenizer.eos_token.join(context)
     # Possibly cut excess
     if max_context_len is not None:
         context_str = tokenizer.decode(tokenizer().input_ids[-max_context_len:])
     # Return context string
-    return context_str + '<|prior|>'
+    return context_str
 
 
-@torch.no_grad()
-@autocast(enabled=mixed_precision)
+def get_latent(context_str) -> Tuple[str, int]:
+    # Encode input
+    input_encoding = tokenizer(context_str + '<|prior|>', return_tensors='pt').to(device)
+    # Process with hidden layers
+    prior_hidden_state = model.transformer(**input_encoding, return_dict=True).last_hidden_state[:, -1:]
+    # Compute prior latent logits
+    prior_logits = model.lm_head(prior_hidden_state)
+    # Latent mask to prevent using common tokens
+    latent_mask = torch.zeros_like(prior_logits)
+    latent_mask[:, model.config.latent_token_ids] = 1.
+    latent_mask = torch.log(latent_mask)
+    # Normalisation value to enforce numerical stability in output
+    shift = prior_logits[:, model.config.latent_token_ids].max().detach()
+    # Compute logits with normalisation trick
+    prior_logits += latent_mask - shift
+    # Latent decoding step
+    if generation_kwargs.get('do_sample_latent', model.config.do_sample_latent):
+        latent_ids = torch.multinomial(torch.softmax(prior_logits, dim=-1), 1)
+    else:
+        latent_ids = torch.argmax(prior_logits, dim=-1).unsqueeze(-1)
+    latent = latent_ids.squeeze(-1)
+    # Retrieve latent code string and corresponding idx
+    latent_str = tokenizer.decode(latent)
+    latent_idx = int(re.compile('<[|]latentcode(\d+)[|]>').search(latent_str).group(1))
+
+    return latent_str, latent_idx
+
+
 def main(args: Namespace):
     # Declare global variables
     global device, tokenizer, model, generation_kwargs
@@ -152,38 +170,42 @@ def main(args: Namespace):
     evaluating: bool = True
     # Log evaluation start
     print("Evaluation started, press [Ctrl+C] to end the process\n\n\n\n\n\n")
-    # Keep evaluation running until user stops it
-    while evaluating:
-        # Wrap everything into a try-except block to stop on SIGTERM
-        try:
-            # Get input from user
-            input_string = input("User: ")
-            # Append latest turn to conversation history
-            # Add the special end of sequence token to signal to the transformer that the turn is finished
-            conversation.append(input_string)
-            # Append latest turn to conversation history file
-            append_turn_to_conversation_file(f"User: {input_string}")
-            # Gather last n turns to be used as prompt to the model and merge them into a single string
-            context_string = get_context(conversation)
-            # Encode the context using the tokeniser
-            input_ids = tokenizer(context_string, return_tensors='pt').input_ids.to(device)
-            # Gather generated ids
-            output_ids = model.generate(input_ids=input_ids, **generation_kwargs)[0, input_ids.size(1):]
-            # Decode the response using the tokenizer
-            output_string: str = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
-            # Print response
-            print(f"DLDLM: {output_string}")
-            # Append latest response to conversation history
-            # Add the special end of sequence token to signal to the transformer that the turn is finished
-            conversation.append(output_string)
-            # Write response to file
-            append_turn_to_conversation_file(f"DLDLM: {output_string}")
-        # In case of KeyboardInterrupt (e.g. when Ctrl+C is pressed or SIGTERM is given) stop running
-        except KeyboardInterrupt:
-            # Set running flag to false
-            evaluating = False
-            # Log exit
-            print("\n\n\n\n\n\nTermination signal received, exiting...")
+    # Context manager for mixed precision
+    with torch.autocast(device.type, enabled=mixed_precision):
+        # Keep evaluation running until user stops it
+        while evaluating:
+            # Wrap everything into a try-except block to stop on SIGTERM
+            try:
+                # Get input from user
+                input_string = input("User: ")
+                # Append latest turn to conversation history
+                # Add the special end of sequence token to signal to the transformer that the turn is finished
+                conversation.append(input_string)
+                # Append latest turn to conversation history file
+                append_turn_to_conversation_file(f"User: {input_string}")
+                # Gather last n turns to be used as prompt to the model and merge them into a single string
+                context_string = get_context_str(conversation)
+                # Using prior predict latent action token to control response generation
+                latent_code_string, latent_code_id = get_latent(context_string)
+                # Encode the context using the tokeniser
+                input_ids = tokenizer(context_string + latent_code_string, return_tensors='pt').input_ids.to(device)
+                # Gather generated ids
+                output_ids = model.generate(input_ids=input_ids, **generation_kwargs)[0, input_ids.size(1):]
+                # Decode the response using the tokenizer
+                output_string: str = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+                # Print response
+                print(f"DLDLM ({latent_code_id}): {output_string}")
+                # Append latest response to conversation history
+                # Add the special end of sequence token to signal to the transformer that the turn is finished
+                conversation.append(output_string)
+                # Write response to file
+                append_turn_to_conversation_file(f"DLDLM ({latent_code_id}): {output_string}")
+            # In case of KeyboardInterrupt (e.g. when Ctrl+C is pressed or SIGTERM is given) stop running
+            except KeyboardInterrupt:
+                # Set running flag to false
+                evaluating = False
+                # Log exit
+                print("\n\n\n\n\n\nTermination signal received, exiting...")
     # Log termination
     logging.info("Evaluation finished")
     return 0

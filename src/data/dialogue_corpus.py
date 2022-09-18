@@ -24,7 +24,6 @@ from misc import sentiment
 from typing import List, Tuple, Dict, Optional
 
 CORPORA: Dict = {
-    CounsellingAndPsychotherapyCorpus.IDENTIFIER: CounsellingAndPsychotherapyCorpus,
     DailyDialog.IDENTIFIER: DailyDialog,
     EmpatheticDialogues.IDENTIFIER: EmpatheticDialogues,
     Hope.IDENTIFIER: Hope,

@@ -98,5 +98,45 @@ def get_latents_count(labelled_samples: List[Dict]):
     return Counter(sample['latent'] for sample in labelled_samples)
 
 
-def get_latents_correlation_matrix(labelled_samples: List[Dict]):
-    ...
+def get_latents_correlation_matrix(
+        labelled_samples: List[Dict], correlation_tgt: str, corpus_list: Optional[List[str]] = None
+):
+    # Get distinct corpora in the data set
+    distinct_corpora = set(sample['corpus'] for sample in labelled_samples)
+    # Get list of distinct values of the target value
+    tgt_values = list(set(sample['corpus'] for sample in labelled_samples))
+    # If the list of corpora il missing from kwargs use all
+    corpus_list = corpus_list if corpus_list is not None else list(distinct_corpora)
+    # Compute statistics
+    correlations = {
+        corpus: {
+            key: (
+                len(samples),
+                *torch.std_mean(torch.vstack([sample['latent_posterior_dist'] for sample in samples]), dim=1)
+            )
+            for key, samples in groupby(
+                (sample for sample in labelled_samples if sample['corpus'] == corpus),
+                lambda x: x[correlation_tgt]
+            ).items()
+        }
+        for corpus in corpus_list
+    }
+    # If is using all corpora get also the overall statistic
+    if set(corpus_list) == distinct_corpora:
+        if correlation_tgt != 'corpus':
+            correlations['all'] = {
+                key: (
+                    len(samples),
+                    *torch.std_mean(torch.vstack([sample['latent_posterior_dist'] for sample in samples]), dim=1)
+                )
+                for key, samples in groupby(labelled_samples, lambda x: x[correlation_tgt]).items()
+            }
+        else:
+            correlations['All'] = {
+                'All': (len(labelled_samples), *torch.std_mean(
+                    torch.vstack([sample['latent_posterior_dist'] for sample in labelled_samples]),
+                    dim=1
+                ))
+            }
+
+    return correlations, tgt_values

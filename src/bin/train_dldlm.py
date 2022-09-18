@@ -297,7 +297,7 @@ def init_optimisation_tools():
     # If using alpha scheduling create instance of scheduler
     if alpha_scheduler_configs is not None:
         # Create alpha scheduler
-        alpha_scheduler = AlphaLinearScheduler(n_epochs, **alpha_scheduler_configs)
+        alpha_scheduler = AlphaLinearScheduler(steps, **alpha_scheduler_configs)
         logging.info("Alpha linear scheduler instantiated")
     # If using beta scheduling create instance of scheduler
     if beta_scheduler_configs is not None:
@@ -409,9 +409,11 @@ def process_mini_batch(
             scaler.update()
         else:
             optimizer.step()
-        # Update learning rate and beta
+        # Update learning rate, alpha and beta
         if lr_scheduler is not None:
             lr_scheduler.step()
+        if alpha_scheduler is not None:
+            alpha_scheduler.step()
         if beta_scheduler is not None:
             beta_scheduler.step()
         # Reset optimiser and model gradients  # Taken from
@@ -707,9 +709,6 @@ def fit_model():
         if checkpoint_gradient:
             model.gradient_checkpointing_enable()
         logging.info("Models saved using utilities")
-        # Update alpha
-        if alpha_scheduler is not None:
-            alpha_scheduler.step()
         # Log end of epoch
         logging.info(f"Epoch {epoch + 1}/{n_epochs} finished")
     # Close training

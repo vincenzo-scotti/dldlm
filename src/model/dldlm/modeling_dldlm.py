@@ -645,16 +645,12 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
                 past = tuple((k[:, :, :response_start_idx - 1], v[:, :, :response_start_idx - 1]) for (k, v) in past)
                 # Compute latent logits
                 # Prior logits
-                prior_logits = self.lm_head(prior_last_hidden_state)
-                # Latent mask to prevent using common tokens
-                latent_mask = torch.zeros_like(prior_logits)
-                latent_mask[:, self.config.latent_token_ids] = 1.
-                latent_mask = torch.log(latent_mask)
+                prior_logits = self._compute_latent_logits(self.lm_head(prior_last_hidden_state))
                 # Latent decoding step
                 if kwargs.get('do_sample_latent', self.config.do_sample_latent):
-                    latent_ids = torch.multinomial(torch.softmax(prior_logits + latent_mask, dim=-1), 1)
+                    latent_ids = torch.multinomial(torch.softmax(prior_logits, dim=-1), 1)
                 else:
-                    latent_ids = torch.argmax(prior_logits + latent_mask, dim=-1).unsqueeze(-1)
+                    latent_ids = torch.argmax(prior_logits, dim=-1).unsqueeze(-1)
                 latent = latent_ids.squeeze(-1)
                 # Add sampled latents in place of the prior tokens
                 input_ids[prior_token_id_idxs] = latent

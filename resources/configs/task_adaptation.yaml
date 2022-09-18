@@ -1,4 +1,4 @@
-experiment_series: DLDLM_pretraining
+experiment_series: DLDLM_adaptation
 experiment_id: dldlm_large
 experiments_directory_path: ./experiments/
 
@@ -11,7 +11,7 @@ log_file: true
 
 dldlm:
   model:
-    pretrained: &pretrained gpt2-large
+    pretrained: &pretrained ./experiments/DLDLM_pretraining/dldlm_large_2022_09_12_10_23_24/model/best_checkpoint
     kwargs:
       n_styles: &n_styles 16
       tf_size: 0
@@ -27,7 +27,7 @@ dldlm:
       sampling_loss_threshold: 0.125
       tf_loss: false
     generate_kwargs:
-      max_length: 384
+      max_length: 512
       min_length: 1
       do_sample: true
       top_p: 1.0
@@ -39,25 +39,21 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-5
-  n_epochs: 5
+    lr: &lr 5.e-6
+  n_epochs: 3
   max_gradient_norm: 1.0
 
 lr_scheduler:
   lr: *lr
   lr_start: 0.0
   lr_stop: 0.0
-  warmup: 2048
+  warmup: 0.01
 
-alpha_scheduler:
-  alpha_start: 1.0
-  alpha_stop: 0.0
-  period: 1.0
+alpha_scheduler: {}
 
 beta_scheduler: {}
 
 evaluation:
-  validation_period: 2048
   monitored_metric: loss
   metrics:
     word_count:
@@ -65,30 +61,22 @@ evaluation:
     traces:
       window_size: 4
     sample_responses:
-      n_samples: 5
+      n_samples: 10
     word_stats: {}
 
 data:
   corpora_dir_path: ./resources/data/raw/
   cache_dir_path: ./resources/data/cache/
   kwargs:
+    corpus_prefix: adaptation_corpus
     corpus_list:
-      - dailydialog
-      - empatheticdialogues
-      - personachat
-      - wizard_of_wikipedia
-    latent_init: true
-    lda_kwargs:
-      n_components: *n_styles
-      max_iter: 10
-      learning_method: online
-      learning_offset: 50.0
-      random_state: *random_seed
+      - HOPE_WSDM_2022
+    latent_init: false
     max_context_length: 256
-    max_response_length: 128
+    max_response_length: 256
   splits:
     train:
-      mini_batch_size: 128
+      mini_batch_size: 32
       in_mem: 2
       n_workers: &n_workers 4
     validation:

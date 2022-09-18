@@ -4,6 +4,8 @@ import math
 import re
 from tempfile import NamedTemporaryFile
 from collections import Counter
+
+import torch
 from matplotlib import pyplot as plt
 from matplotlib import colors as cols
 import torchvision
@@ -232,3 +234,103 @@ def log_latents_count(
             print(text, file=f)
 
     return text
+
+
+def log_correlations(
+        data: Dict[str, Dict[str, Dict[str, torch.Tensor]]],
+        tb_writer: Optional[SummaryWriter] = None,
+        sub_tag: Optional[str] = None,
+        step: Optional[int] = None,
+        dest_dir: Optional[str] = None,
+        file_name: Optional[str] = None
+):
+    text = f"{sub_tag}\n\n" if sub_tag is not None else str()
+    for tgt, correlations in data.items():
+        text += f"\t{tgt}:\n"
+        for subset, correlations in correlations.items():
+            text += f"\t\t{subset}:\n"
+            for tgt_value, (support, std, avg) in correlations.items():
+                text += f"\t\t\t{tgt_value} ({support}): " + \
+                        ", ".join(f"{avg:.4f} ({std:.4f})" for avg, std in zip(avg.tolist(), std.tolist())) + \
+                        "\n"
+        text += '\n'
+
+    if tb_writer is not None:
+        tag = f'Observed correlations/{sub_tag}' if sub_tag is not None else 'Observed correlations'
+        tb_writer.add_text(tag,  f"<pre>{text}</pre>", step)
+    if dest_dir is not None and file_name is not None:
+        if not os.path.exists(dest_dir):
+            os.mkdir(dest_dir)
+        file_path = os.path.join(dest_dir, file_name)
+        with open(file_path, 'w') as f:
+            print(text, file=f)
+
+    return text
+
+
+def plot_correlations(
+        data: Dict[str, Dict[str, Dict[str, torch.Tensor]]],
+        tb_writer: Optional[SummaryWriter] = None,
+        sub_tag: Optional[str] = None,
+        step: Optional[int] = None,
+        dest_dir: Optional[str] = None,
+        file_name: Optional[str] = None
+):
+    return
+    # figure = dict()
+    # # Gather considered subsets
+    # sub_sets = set(sub_set for correlations in data.values() for sub_set in correlations)
+    # # Correlations order  # TODO find better solution
+    # correlations = ['sentiment', 'dialogue_act', 'speaker']
+    # # Generate one plot per sub-set
+    # for i, sub_set in sub_sets:
+    #     # Get tmp tag
+    #     tmp_tag = sub_set.lower().replace(' ', '_')
+    #     # Get list of supported correlations
+    #     tmp_correlations = [key for key in correlations if sub_set in data[key]]
+    #
+    #     width = sum(1 + len(data[key][sub_set]) for key in tmp_correlations)
+    #
+    #     n_cols = 1 + len(tmp_correlations)
+    #     n_rows = 2
+    #     tmp_figure, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=(width, 12), sharey=True)
+    #     # axes = axes.flatten()
+    #
+    #     # Work on computed correlations
+    #     for correlation in tmp_correlations:
+    #         x_labels = [label for ]
+    #
+    #
+    #     for key_idx, key in enumerate(data):
+    #         try:
+    #             items, counts = list(zip(*data[key][i].most_common(top_n)))
+    #         except ValueError:
+    #             items = tuple()
+    #             counts = tuple()
+    #         ax = axes[key_idx]
+    #         ax.barh(items, counts, height=0.7)
+    #         latent = int(group_id_regex.search(key).group(1)) if group_id_regex.match(key) else None
+    #         ax.set_title(f"Latent: {latent}", fontdict={"fontsize": 20})
+    #         ax.invert_yaxis()
+    #         ax.tick_params(axis="both", which="major", labelsize=20)
+    #         for pos in "top right left".split():
+    #             ax.spines[pos].set_visible(False)
+    #         if sub_tag is not None:
+    #             tmp_figure.suptitle(f"Latent actions word stats ({sub_tag})", fontsize=32)
+    #     plt.subplots_adjust(top=0.90, bottom=0.05, wspace=0.90, hspace=0.3)
+    #
+    #     figure[tmp_tag] = tmp_figure
+    #
+    #     if tb_writer is not None:
+    #         if sub_tag is not None:
+    #             tag = f'Observed correlations ({sub_tag} - {tmp_tag})'
+    #         else:
+    #             tag = f'Observed correlations ({tmp_tag})'
+    #         tb_writer.add_figure(tag, tmp_figure, step)
+    #     if dest_dir is not None and file_name is not None:
+    #         if not os.path.exists(dest_dir):
+    #             os.mkdir(dest_dir)
+    #         file_path = os.path.join(dest_dir, f'{tmp_tag}_{file_name}')
+    #         tmp_figure.savefig(file_path)
+    #
+    # return figure
