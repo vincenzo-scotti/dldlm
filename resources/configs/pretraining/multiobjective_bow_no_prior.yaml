@@ -1,34 +1,32 @@
 experiment_series: DLDLM_pretraining
-experiment_id: dldlm_small
+experiment_id: dldlm_large_multiobjective_bow_no_prior
 experiments_directory_path: ./experiments/
 
-random_seed: 2307
+random_seed: &random_seed 2307
 mixed_precision: true
+checkpoint_gradient: true
+
+log_level: DEBUG
+log_file: true
 
 dldlm:
   model:
-    pretrained: &pretrained gpt2
+    pretrained: &pretrained gpt2-large
     kwargs:
-      n_styles: &n_styles 8
-      tf_size: 0
+      n_styles: &n_styles 16
+      tf_size: 50256
       init_tf_head: true
       context_pdrop: 0.0
       corruption_rate: 0.0
       kl_loss: false
-      behaviour_loss: true
       sampling_loss: true
-      behaviour_loss_weight: 0.0002
-      behaviour_loss_threshold: 0.25
-      sampling_loss_weight: 0.02
-      sampling_loss_threshold: 0.25
-      tf_loss: false #
     generate_kwargs:
       max_length: 384
       min_length: 1
       do_sample: true
-      top_p: 0.8
+      top_p: 1.0
       top_k: 0
-      temperature: 1.
+      temperature: 0.7
   tokeniser:
     pretrained: *pretrained
     n_styles: *n_styles
@@ -36,14 +34,16 @@ dldlm:
 optimizer:
   kwargs:
     lr: &lr 5.e-5
-  n_epochs: 10
+  n_epochs: 5
   max_gradient_norm: 1.0
 
 lr_scheduler:
   lr: *lr
   lr_start: 0.0
   lr_stop: 0.0
-  warmup: 4096
+  warmup: 2048
+
+alpha_scheduler: {}
 
 beta_scheduler: {}
 
@@ -57,6 +57,7 @@ evaluation:
       window_size: 4
     sample_responses:
       n_samples: 5
+    word_stats: {}
 
 data:
   corpora_dir_path: ./resources/data/raw/
@@ -67,22 +68,19 @@ data:
       - empatheticdialogues
       - personachat
       - wizard_of_wikipedia
+    latent_init: false
     max_context_length: 256
     max_response_length: 128
-    count_word_tokens: true
   splits:
     train:
-      mini_batch_size: 64
-      in_mem: 4
+      mini_batch_size: 128
+      in_mem: 2
       n_workers: &n_workers 4
     validation:
-      mini_batch_size: &eval_mini_batch_size 32
+      mini_batch_size: &eval_mini_batch_size 16
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
     test:
       mini_batch_size: *eval_mini_batch_size
       in_mem: *eval_mini_batch_size
       n_workers: *n_workers
-
-log_level: DEBUG
-log_file: true

@@ -1,8 +1,8 @@
 experiment_series: DLDLM_pretraining
-experiment_id: dldlm_large
+experiment_id: dldlm_large_nllt_lda
 experiments_directory_path: ./experiments/
 
-random_seed: 2307
+random_seed: &random_seed 2307
 mixed_precision: true
 checkpoint_gradient: true
 
@@ -21,9 +21,7 @@ dldlm:
       kl_loss: false
       behaviour_loss: true
       sampling_loss: true
-      behaviour_loss_weight: 0.0002
       behaviour_loss_threshold: 0.125
-      sampling_loss_weight: 0.02
       sampling_loss_threshold: 0.125
       tf_loss: false
     generate_kwargs:
@@ -47,7 +45,12 @@ lr_scheduler:
   lr: *lr
   lr_start: 0.0
   lr_stop: 0.0
-  warmup: 4096
+  warmup: 2048
+
+alpha_scheduler:
+  alpha_start: 1.0
+  alpha_stop: 0.0
+  period: 1.0
 
 beta_scheduler: {}
 
@@ -61,41 +64,7 @@ evaluation:
       window_size: 4
     sample_responses:
       n_samples: 5
-    word_stats:
-      custom_stop_words:
-        - like
-        - yes
-        - know
-        - yeah
-        - think
-        - feel
-        - going
-        - mean
-        - kind
-        - right
-        - things
-        - want
-        - way
-        - time
-        - people
-        - sort
-        - thing
-        - good
-        - love
-        - said
-        - okay
-        - guess
-        - maybe
-        - lot
-        - oh
-        - little
-        - got
-        - work
-        - feeling
-        - actually
-        - need
-        - great
-        - thank
+    word_stats: {}
 
 data:
   corpora_dir_path: ./resources/data/raw/
@@ -106,9 +75,15 @@ data:
       - empatheticdialogues
       - personachat
       - wizard_of_wikipedia
+    latent_init: true
+    lda_kwargs:
+      n_components: *n_styles
+      max_iter: 10
+      learning_method: online
+      learning_offset: 50.0
+      random_state: *random_seed
     max_context_length: 256
     max_response_length: 128
-    count_word_tokens: true
   splits:
     train:
       mini_batch_size: 128
