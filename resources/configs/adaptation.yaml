@@ -1,5 +1,5 @@
 experiment_series: DLDLM_adaptation
-experiment_id: dldlm_large
+experiment_id: dldlm_large_weighted_nllt_gibbs
 experiments_directory_path: ./experiments/
 
 random_seed: &random_seed 2307
@@ -47,7 +47,7 @@ lr_scheduler:
   lr: *lr
   lr_start: 0.0
   lr_stop: 0.0
-  warmup: 0.01
+  warmup: 0.05
 
 alpha_scheduler: {}
 
