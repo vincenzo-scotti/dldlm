@@ -16,7 +16,7 @@ import torch
 from torch.utils.data import Dataset
 from .utils import DataSetSplit, IGNORE_INDEX
 from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
-from .corpora import Hope, CounsellingAndPsychotherapyCorpus
+from .corpora import Hope
 
 from model import DLDLMTokenizer
 from misc import sentiment

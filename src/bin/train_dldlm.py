@@ -216,23 +216,31 @@ def init_model():
     # Declare global variables
     global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path, best_model_checkpoint_path, checkpoint_gradient
     # Create tokeniser instance
-    tokenizer = DLDLMTokenizer.from_pretrained(
-        tokenizer_configs['pretrained']
-    ).extend_from_gpt2_tokenizer(
-        tokenizer_configs['n_styles']
-    )
-    logging.info("Tokeniser instantiated and extended")
+    if tokenizer_configs.get('init', True):
+        tokenizer = DLDLMTokenizer.from_pretrained(
+            tokenizer_configs['pretrained']
+        ).extend_from_gpt2_tokenizer(
+            tokenizer_configs['n_styles']
+        )
+        logging.info("Tokeniser instantiated and extended")
+    else:
+        tokenizer = DLDLMTokenizer.from_pretrained(tokenizer_configs['pretrained'])
+        logging.info("Tokeniser instantiated")
     # Serialise tokeniser
     tokenizer.save_pretrained(model_checkpoint_path)
     tokenizer.save_pretrained(best_model_checkpoint_path)
     logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
-    model = DLDLMFullModel.from_pretrained(
-        model_configs['pretrained'], **model_configs.get('kwargs', dict())
-    ).extend_from_gpt2_initialization(
-        tokenizer
-    )
-    logging.info("DLDLM model instantiated and extended")
+    if model_configs.get('init', True):
+        model = DLDLMFullModel.from_pretrained(
+            model_configs['pretrained'], **model_configs.get('kwargs', dict())
+        ).extend_from_gpt2_initialization(
+            tokenizer
+        )
+        logging.info("DLDLM model instantiated and extended")
+    else:
+        model = DLDLMFullModel.from_pretrained(model_configs['pretrained'], **model_configs.get('kwargs', dict()))
+        logging.info("DLDLM model instantiated")
     # Possibly enable gradient checkpointing
     if checkpoint_gradient:
         model.gradient_checkpointing_enable()
@@ -319,9 +327,31 @@ def process_mini_batch(
         raw_data: List[Dict]
 ) -> Union[Tuple[torch.Tensor, Dict[str, torch.Tensor]], Tuple[torch.Tensor, Dict[str, torch.Tensor], List[Dict]]]:
     # Declare global variables
-    global mem_failures, corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
+    global corpus_configs, optimizer_configs, model, corpus_loaders, optimizer, scaler, lr_scheduler
     global latent_count_txt_dir_path, current_experiment_dir_path, count_plots_dir_path, \
         trace_plots_dir_path, count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path
+    # Initial integrity check
+    if input_ids.size(-1) > tokenizer.model_max_length:
+        logging.error("Out of bound input sequence, skipping.")
+        if model.training:
+            # Update learning rate, alpha and beta
+            if lr_scheduler is not None:
+                lr_scheduler.step()
+            if alpha_scheduler is not None:
+                alpha_scheduler.step()
+            if beta_scheduler is not None:
+                beta_scheduler.step()
+            # Return null values
+            return (
+                torch.tensor(float('nan'), device=device),
+                {key: torch.tensor(float('nan'), device=device) for key in LOSS_KEYS_MAPPING}
+            )
+        else:
+            return (
+                torch.empty(0, device=device),
+                {key: torch.empty(0, device=device) for key in LOSS_KEYS_MAPPING},
+                list()
+            )
     # Compute helper params
     mini_batch_size: int = len(input_ids)
     in_mem: int = corpus_configs['splits'][split]['in_mem']

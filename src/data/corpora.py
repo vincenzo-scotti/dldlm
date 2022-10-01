@@ -10,9 +10,8 @@ import re
 
 import json
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-from typing import List, Dict, Pattern, Iterable, Optional, Union
+from typing import List, Dict, Pattern, Iterable
 
 
 # TODO move context management to dialogue corpus and threat it here as a list of strings
@@ -347,92 +346,6 @@ class Hope(DialogueCorpus):
         # Load split of the corpus
         dialogues = [
             pd.read_csv(os.path.join(self.corpus_dir_path, sub_dir_name, file_name)) for file_name in file_name_iterator
-        ]
-
-        # Standardise corpus
-        with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
-            return sum(Parallel(verbose=self.verbosity_level)(
-                delayed(self._preprocess_dialogue)(dialogue, idx) for idx, dialogue in enumerate(dialogues)
-            ), [])
-
-
-class CounsellingAndPsychotherapyCorpus(DialogueCorpus):
-    IDENTIFIER: str = 'Counseling_and_Psychotherapy_Transcripts_Volume_II'
-
-    VALID_LINE_REGEX: Pattern[str] = re.compile(r'^(CLIENT|THERAPIST): .+$')
-    ROLES_DECODER: Dict = {'THERAPIST': 'Therapist', 'CLIENT': 'Patient'}
-
-    def __init__(
-            self,
-            *args,
-            validation_size: Optional[Union[int, float]] = None,
-            test_size: Optional[Union[int, float]] = None,
-            random_seed: Optional[int] = None,
-            **kwargs
-    ):
-        # Save additional parameters
-        self.validation_size: Optional[Union[int, float]] = validation_size
-        self.test_size: Optional[Union[int, float]] = test_size
-        self.random_seed: Optional[int] = random_seed
-        # Call super class constructor
-        super(CounsellingAndPsychotherapyCorpus, self).__init__(*args, **kwargs)
-
-    def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
-        # Break string into lines
-        original_dialogue = original_dialogue.split('\n')
-        # Check if the dialogue is well formed
-        if not all(self.VALID_LINE_REGEX.match(line) for line in original_dialogue):
-            return list()
-        # Dialogue samples
-        dialogue_turns = [
-            (
-                self._preprocess_text(turn.split(': ', 1)[1].strip()),
-                self.ROLES_DECODER[turn.split(': ', 1)[0].strip()]
-            )
-            for turn in original_dialogue
-        ]
-        # Dialogue contexts
-        dialogue_contexts = self._get_dialogue_contexts([utterance for utterance, *_ in dialogue_turns])
-        # Pre-processed dialogue
-        dialogue: List[Dict] = [
-            {
-                'split': self.data_set_split.value,
-                'corpus': 'HOPE',
-                'conversation_idx': dialogue_idx,
-                'turn_idx': turn_idx,
-                'context': context,
-                'response': response,
-                'speaker': speaker
-            }
-            for turn_idx, (context, (response, speaker)) in enumerate(zip(dialogue_contexts, dialogue_turns))
-        ]
-        return dialogue
-
-    @staticmethod
-    def _load_txt_file(path: str) -> str:
-        with open(path) as f:
-            return f.read().strip()
-
-    def _load_samples(self) -> List[Dict]:
-        # Get file list
-        file_list: List[str] = os.listdir(self.corpus_dir_path)
-        # Get indices list
-        idxs = range(len(file_list))
-        # Do train/validation/test split on the indices
-        train_idxs, test_idxs = train_test_split(idxs, test_size=self.test_size, random_state=self.random_seed)
-        train_idxs, validation_idxs = train_test_split(
-            train_idxs, test_size=self.validation_size, random_state=self.random_seed
-        )
-        # Crete dummy dictionary to select the split indices
-        idxs_dict: Dict[DataSetSplit, List[int]] = {
-            DataSetSplit.TRAIN: train_idxs,
-            DataSetSplit.VALIDATION: validation_idxs,
-            DataSetSplit.TEST: test_idxs
-        }
-        # Load split of the corpus
-        dialogues = [
-            self._load_txt_file(os.path.join(self.corpus_dir_path, file_list[idx]))
-            for idx in idxs_dict[self.data_set_split]
         ]
 
         # Standardise corpus
