@@ -5,6 +5,8 @@ import re
 from tempfile import NamedTemporaryFile
 from collections import Counter
 
+import numpy as np
+
 import torch
 from matplotlib import pyplot as plt
 from matplotlib import colors as cols
@@ -269,14 +271,144 @@ def log_correlations(
 
 
 def plot_correlations(
-        data: Dict[str, Dict[str, Dict[str, torch.Tensor]]],
+        data: Dict,
         tb_writer: Optional[SummaryWriter] = None,
         sub_tag: Optional[str] = None,
         step: Optional[int] = None,
         dest_dir: Optional[str] = None,
         file_name: Optional[str] = None
 ):
-    return
+    figure = dict()
+    # Gather considered subsets
+    sub_sets = set(sub_set for correlations in data.values() for sub_set in correlations)
+    # Correlations order  # TODO find better solution
+    correlations = ['sentiment', 'dialogue_act', 'speaker']
+    # Generate one plot per sub-set
+    for i, sub_set in sub_sets:
+        # Get tmp tag
+        tmp_tag = sub_set.lower().replace(' ', '_')
+        # Get list of supported correlations
+        tmp_correlations = [key for key in correlations if sub_set in data[key]]
+        # Get current subset data
+        tmp_data = {correlation: data[correlation][sub_set] for correlation in tmp_correlations}
+
+        n_styles = tmp_data[tmp_correlations[0]][list(tmp_data[tmp_correlations[0]])[0]][-1].shape(0)  # TODO find better solution
+
+        mat = {
+            key: torch.vstack([
+                torch.tensor([avg[i] * count for count, std, avg in values.values()]) /
+                torch.tensor([avg[i] * count for count, std, avg in values.values()]).sum()
+                for i in range(n_styles)
+            ])
+            for key, values in tmp_data.items()
+        }
+
+        counts = {
+            key: torch.tensor([count for count, std, avg in values.values()]).reshape(1, -1)
+            for key, values in tmp_data.items()
+        }
+
+        p_dist = (
+            torch.tensor([count * avg for count, std, avg in tmp_data[tmp_correlations[0]].values()]) /
+            torch.tensor([count for count, std, avg in tmp_data[tmp_correlations[0]].values()]).sum()
+        )
+
+        tot = sum(count for count, std, avg in tmp_data[tmp_correlations[0]].values())
+
+        #
+        width = sum(1 + m.shape[-1] for m in mat.values())
+
+        n_cols = 1 + len(tmp_correlations)
+        n_rows = 2
+        tmp_figure, axes = plt.subplots(
+            nrows=n_rows, ncols=n_cols, figsize=(width * 0.8, 12 * 0.8), sharex='col', sharey='row',
+            gridspec_kw={'wspace': .5, 'hspace': .25, 'width_ratios': [len(data[correlation][sub_set]) for correlation in tmp_correlations] + [1],
+                         'height_ratios': [n_styles, 1]}
+        )
+        axes = axes.flatten()
+        for key_idx, key in enumerate(tmp_correlations + ['Labels']):
+            axt = axes[key_idx]
+            axb = axes[key_idx + n_cols]
+            if key_idx < n_cols:
+                if key_idx < n_cols - 1:
+                    p_dist_img = axt.matshow(mat[key], cmap=plt.cm.Blues, vmin=0, vmax=1)
+                    axt.set_xticklabels([])
+                    axt.set_xticks(range(len(data[key][sub_set])))
+                    axt.set_yticks(range(n_styles))
+                    if key_idx == 0:
+                        axt.set_yticklabels([f'Latent {i}' for i in range(n_styles)])
+                        axt.set_ylabel('Latent-probability distribution in group')
+                    else:
+                        axt.yaxis.set_ticks_position('none')
+                        # axt.sharey(axes[0])
+                    # axt.set_title(f"{key}", fontdict={"fontsize": 20})
+                    axt.set_xlabel(f'{key}')
+                    axt.xaxis.set_ticks_position('none')
+                    cax = tmp_figure.add_axes([axt.get_position().x0,
+                                               axt.get_position().y0 - 0.04,
+                                               axt.get_position().width,
+                                               0.015])
+
+                    # Plot horizontal colorbar on created axes
+                    plt.colorbar(p_dist_img, orientation="horizontal", cax=cax, ticks=[0.0, 1.0])
+
+                    axb.matshow(counts[key], cmap=plt.cm.Reds, vmin=0, vmax=tot)
+                    axb.set_xticklabels([*data[key][sub_set]], rotation=45, ha='right')
+                    axb.set_xticks(range(len(data[key][sub_set])))
+                    axb.xaxis.set_ticks_position('bottom')
+                    axb.yaxis.set_ticks_position('none')
+                    axb.set_yticklabels([])
+                    # axb.set_title(f"Support", fontdict={"fontsize": 20})
+                    axb.set_ylabel('Support', rotation=0, ha='right', va='center')
+                    axb.set_xlabel(f'{key}')
+                    for (i, j), z in np.ndenumerate(counts[key].numpy()):
+                        axb.text(j, i, f'{z}', ha='center', va='center', color='white' if z >= tot / 2 else 'black')
+                else:
+                    p_dist_img = axt.matshow(p_dist, cmap=plt.cm.Greens, vmin=0, vmax=1)
+                    axt.set_xticklabels([])
+                    axt.set_xticks(range(1))
+                    axt.set_yticks(range(n_styles))
+                    axt.xaxis.set_ticks_position('none')
+                    axt.yaxis.set_ticks_position('none')
+                    # axt.set_title(f"Posterior distribution", fontdict={"fontsize": 20})
+                    axt.set_ylabel(f"Posterior latent probability distribution")
+                    cax = tmp_figure.add_axes([axt.get_position().x1 + 0.01,
+                                               axt.get_position().y0,
+                                               0.0075,
+                                               axt.get_position().height])
+                    plt.colorbar(p_dist_img, cax=cax, ticks=[0.0, 1.0])  # ax=axt)
+                    axt.sharey(axes[0])
+
+                    count_img = axb.matshow([[tot]], cmap=plt.cm.Reds, vmin=0, vmax=tot)
+                    axb.xaxis.set_ticks_position('none')
+                    axb.yaxis.set_ticks_position('none')
+                    axb.set_xticklabels([])
+                    axb.set_yticklabels([])
+                    # axb.set_title(f"Support", fontdict={"fontsize": 20})
+                    axb.text(0, 0, f'{tot}', ha='center', va='center', color='white')
+                    # axb.sharex(axt)
+
+        tmp_figure.suptitle(f"Correlation", fontsize=32)
+        plt.tight_layout()
+        #
+
+        figure[tmp_tag] = tmp_figure
+
+        if tb_writer is not None:
+            if sub_tag is not None:
+                tag = f'Observed correlations ({sub_tag} - {tmp_tag})'
+            else:
+                tag = f'Observed correlations ({tmp_tag})'
+            tb_writer.add_figure(tag, tmp_figure, step)
+        if dest_dir is not None and file_name is not None:
+            if not os.path.exists(dest_dir):
+                os.mkdir(dest_dir)
+            file_path = os.path.join(dest_dir, f'{tmp_tag}_{file_name}')
+            tmp_figure.savefig(file_path)
+
+    return figure
+
+
     # figure = dict()
     # # Gather considered subsets
     # sub_sets = set(sub_set for correlations in data.values() for sub_set in correlations)

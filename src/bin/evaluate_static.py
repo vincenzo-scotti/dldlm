@@ -96,6 +96,7 @@ def init_environment(config_file_path: str):
     current_experiment_dir_path = configs['reference_experiment']
     if not os.path.exists(current_experiment_dir_path):
         raise ValueError('The specified ')
+    model_checkpoint_path = os.path.join(current_experiment_dir_path, 'model', 'latest_checkpoint')
     best_model_checkpoint_path = os.path.join(current_experiment_dir_path, 'model', 'best_checkpoint')
     tb_dir_path = os.path.join(current_experiment_dir_path, 'tensorboard')
 
@@ -172,8 +173,8 @@ def init_environment(config_file_path: str):
     mixed_precision = configs.get('mixed_precision', mixed_precision)
     logging.info(f"Mixed precision set to '{mixed_precision}'")
     # Load remaining configs
-    model_path = best_model_checkpoint_path
-    tokenizer_path = best_model_checkpoint_path
+    model_path = best_model_checkpoint_path if configs.get('use_best', True) else model_checkpoint_path
+    tokenizer_path = best_model_checkpoint_path if configs.get('use_best', True) else model_checkpoint_path
     evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
