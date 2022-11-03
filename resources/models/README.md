@@ -12,7 +12,19 @@ Directory structure:
 ```
  |- models/
     |- dldlm/
-      |- ...
+      |- added_tokens.json
+      |- config.json
+      |- merges.txt
+      |- pytorch_model.bin
+      |- special_tokens_map.json
+      |- tokenizer_config.json
+      |- vocab.json
     |- dldlm_therapy/
-      |- ...
+      |- added_tokens.json
+      |- config.json
+      |- merges.txt
+      |- pytorch_model.bin
+      |- special_tokens_map.json
+      |- tokenizer_config.json
+      |- vocab.json
 ```

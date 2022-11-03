@@ -10,5 +10,5 @@ Pretraining experiments:
 - [x] Multi-objective with BoW and without prior  ([PLATO]( https://aclanthology.org/2021.findings-acl.222.pdf )-like, for comparison)
 - [x] Beta cyclical annealing and KL-Divergence latent objective with BoW ([βVAE]( https://aclanthology.org/N19-1021.pdf )-like, for comparison)
 
-Adaptation experiments:
-- [ ] NLLt latent objective
+Tuning experiments:
+- [ ] NLLt latent objective and [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling)
