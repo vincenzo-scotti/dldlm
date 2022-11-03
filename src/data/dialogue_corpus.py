@@ -52,6 +52,7 @@ class DLDLMCorpus(Dataset):
             reload_cache: bool = False,
             max_response_length: Optional[int] = None,
             latent: bool = True,
+            distractor: bool = False,
             count_word_tokens: bool = True,
             compute_tf_idf: bool = True,
             incremental_stats: bool = True,
@@ -67,7 +68,9 @@ class DLDLMCorpus(Dataset):
         # Tokeniser to prepare inputs
         self.tokenizer: DLDLMTokenizer = tokenizer
         # Whether to use the latent codes
-        self.latent = latent
+        self.latent: bool = latent
+        # Whether to use distractor samples
+        self.distractor: bool = distractor
         # Max response length
         self.max_response_length: Optional[int] = max_response_length
         # Data split identifier
@@ -224,7 +227,15 @@ class DLDLMCorpus(Dataset):
         with bz2.BZ2File(self.corpus_cache_file_path, 'r') as f:
             self.data = pickle.load(f)
 
-    def collate(self, mini_batch) -> Tuple[torch.tensor, torch.tensor, torch.tensor, Optional[torch.tensor], List[Dict]]:
+    def collate(self, mini_batch) -> Tuple[
+        torch.tensor,
+        torch.tensor,
+        torch.tensor,
+        Optional[torch.tensor],
+        Optional[torch.tensor],
+        Optional[torch.tensor],
+        List[Dict]
+    ]:
         # Encode context
         padding_side = self.tokenizer.padding_side
         self.tokenizer.padding_side = 'left'
@@ -239,6 +250,13 @@ class DLDLMCorpus(Dataset):
                 padding=True,
                 return_tensors='pt'
             )
+            # Force last token to be the posterior token, useful when dealing with sequences that are too long
+            if self.max_response_length is not None and self.max_response_length < response_encodings.input_ids.size(-1):
+                for b_idx, t_idx in zip(*torch.where(
+                        response_encodings.input_ids == self.tokenizer.convert_tokens_to_ids('<|posterior|>')
+                )):
+                    if t_idx >= self.max_response_length:
+                        response_encodings.input_ids[b_idx, self.max_response_length - 1] = response_encodings.input_ids[b_idx, t_idx]
         else:
             response_encodings = self.tokenizer(
                 [sample['response'] + self.tokenizer.eos_token for sample in mini_batch],
@@ -248,10 +266,10 @@ class DLDLMCorpus(Dataset):
         # Prepare inputs
         if self.max_response_length is not None:
             input_ids = torch.hstack(
-                [context_encodings.input_ids, response_encodings.input_ids[:self.max_response_length]]
+                [context_encodings.input_ids, response_encodings.input_ids[:, :self.max_response_length]]
             )
             attention_mask = torch.hstack(
-                [context_encodings.attention_mask, response_encodings.attention_mask[:self.max_response_length]]
+                [context_encodings.attention_mask, response_encodings.attention_mask[:, :self.max_response_length]]
             )
         else:
             input_ids = torch.hstack([context_encodings.input_ids, response_encodings.input_ids])
@@ -263,8 +281,8 @@ class DLDLMCorpus(Dataset):
             return_tensors='pt'
         )
         if self.max_response_length is not None:
-            labels = label_encodings.input_ids[:self.max_response_length]
-            labels[~label_encodings.attention_mask[:self.max_response_length].bool()] = IGNORE_INDEX
+            labels = label_encodings.input_ids[:, :self.max_response_length]
+            labels[~label_encodings.attention_mask[:, :self.max_response_length].bool()] = IGNORE_INDEX
         else:
             labels = label_encodings.input_ids
             labels[~label_encodings.attention_mask.bool()] = IGNORE_INDEX
@@ -275,4 +293,17 @@ class DLDLMCorpus(Dataset):
         else:
             latent_p_dist = None
 
-        return input_ids, attention_mask, labels, latent_p_dist, mini_batch
+        # Add distractor samples if required
+        if self.distractor:
+            distractor_ids = torch.vstack([
+                response_encodings.input_ids[1:, :self.max_response_length],
+                response_encodings.input_ids[:1, :self.max_response_length]
+            ])
+            distractor_attention_mask = torch.vstack([
+                response_encodings.attention_mask[1:, :self.max_response_length],
+                response_encodings.attention_mask[:1, :self.max_response_length]
+            ])
+        else:
+            distractor_ids = distractor_attention_mask = None
+
+        return input_ids, attention_mask, labels, latent_p_dist, distractor_ids, distractor_attention_mask, mini_batch
