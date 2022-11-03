@@ -52,6 +52,7 @@ class DLDLMLossFunctionOutput(ModelOutput):
     prior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     posterior_dist_entropy: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
     tf_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
+    retrieval_loss: Optional[torch.Tensor] = None  # Shape (1,) or (batch_size,)
 
 
 @dataclass
@@ -96,12 +97,14 @@ class DLDLMSequenceAnalysisModelOutput(SequenceClassifierOutputWithPast):
     posterior_past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None  # Shape (num_hidden_layers * 2 * (batch_size, num_heads, [[[context_length] + response_length] + 1], embed_size_per_head))
     posterior_hidden_states: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, [[[context_length] + response_length] + 1], hidden_size)
     posterior_attentions: Optional[Tuple[torch.FloatTensor]] = None  # Shape ((num_hidden_layers + 1) * (batch_size, num_heads, 1, [[context_length] + response_length] + 1))
+    distractor_last_hidden_state: Optional[Tuple[torch.FloatTensor]] = None  # Shape (batch_size, hidden_size)
 
 
 @dataclass
 class DLDLMFullModelOutput(DLDLMLMHeadModelOutput, DLDLMSequenceAnalysisModelOutput):
     # logits shape (batch_size, response_length, vocab_size)
     tf_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size, tf_size)
+    retrieval_logits: Optional[torch.FloatTensor] = None  # Shape (batch_size,)
 
 
 class DLDLMPreTrainedModel(GPT2PreTrainedModel):
@@ -120,6 +123,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             latent: Optional[torch.Tensor] = None,  # Shape (batch_size,)
             latent_tgt_dist: Optional[torch.Tensor] = None,  # Shape (batch_size, num_styles)
             tf_logits: Optional[torch.Tensor] = None,  # Shape (batch_size, tf_size)
+            retrieval_logits: Optional[torch.Tensor] = None,  # Shape (batch_size,)
+            retrieval_labels: Optional[torch.Tensor] = None,  # Shape (batch_size,)
             batch_size: Optional[int] = None,
             **kwargs
     ) -> DLDLMLossFunctionOutput:
@@ -304,10 +309,26 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             if reduction:
                 tf_loss = tf_loss.mean()
             if kwargs.get('tf_loss', self.config.tf_loss):
-                weight = torch.tensor(kwargs.get('tf_loss_weight', self.config.tf_loss_weight), device = self.device)
+                weight = torch.tensor(kwargs.get('tf_loss_weight', self.config.tf_loss_weight), device=self.device)
                 loss += weight * tf_loss
         else:
             tf_loss = None
+        # Retrieval loss
+        if retrieval_logits is not None and retrieval_labels is not None:
+            retrieval_loss: Optional[torch.Tensor] = F.binary_cross_entropy_with_logits(
+                retrieval_logits.view(-1), retrieval_labels, reduction='none'
+            )
+            if reduction:
+                retrieval_loss = retrieval_loss.mean()
+            else:  # FIXME temporary solution
+                retrieval_loss = torch.vstack([
+                    retrieval_loss[:retrieval_loss.size(0)//2], retrieval_loss[retrieval_loss.size(0)//2:]
+                ]).float().mean(dim=0)
+            if kwargs.get('retrieval_loss', self.config.retrieval_loss):
+                weight = torch.tensor(kwargs.get('retrieval_loss_weight', self.config.retrieval_loss_weight), device=self.device)
+                loss += weight * retrieval_loss
+        else:
+            retrieval_loss = None
 
         output = DLDLMLossFunctionOutput(
             loss=loss,
@@ -323,7 +344,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             elbo=elbo,
             prior_dist_entropy=prior_dist_entropy,
             posterior_dist_entropy=posterior_dist_entropy,
-            tf_loss=tf_loss
+            tf_loss=tf_loss,
+            retrieval_loss=retrieval_loss
         )
 
         return output
@@ -365,7 +387,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             token_type_ids=token_type_ids,
             position_ids=position_ids,
             head_mask=head_mask,
-            use_cache=use_cache,
+            use_cache=not(self.training and self.transformer.gradient_checkpointing),
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=True,
@@ -398,6 +420,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
             token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             position_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+            distractor_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+            distractor_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
+            distractor_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
+            distractor_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             prior_token_id_idxs: Optional[Tuple[torch.Tensor]] = None,
             posterior_token_id_idxs: Optional[Tuple[torch.Tensor]] = None,
             response_start_idx: Optional[int] = None,
@@ -415,6 +441,10 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             p=self.config.corruption_rate,
             training=self.training
         )
+        # Mask prior token if not used
+        if not self.config.use_prior:
+            attention_mask = attention_mask.clone()
+            attention_mask[prior_token_id_idxs] = 0
         # Dialogue analysis step
         analysis_hidden_outputs = self._compute_hidden_transformation(
             input_ids=input_ids,
@@ -457,6 +487,45 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Latent last hidden states
         prior_last_hidden_state = analysis_last_hidden_state[prior_token_id_idxs]
         posterior_last_hidden_state = analysis_last_hidden_state[posterior_token_id_idxs]
+        # If available process also distractors
+        if distractor_ids is not None or distractor_embeds is not None:
+            # Input IDs
+            if self.transformer.gradient_checkpointing and self.training:
+                distractor_ids = torch.hstack([input_ids[:, :response_start_idx - 1], distractor_ids])
+            # Input embeds
+            # TODO implement
+            # Past key-values
+            distractor_past_key_values = tuple(
+                (k[:, :, :response_start_idx - 1], v[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
+            ) if response_start_idx > 1 and not (self.transformer.gradient_checkpointing and self.training) else None
+            # Attention
+            # if not (self.transformer.gradient_checkpointing and self.training):
+            distractor_attention_mask = torch.hstack([
+                attention_mask[:, :response_start_idx - 1], distractor_attention_mask
+            ])
+            # Mask prior token if not used
+            if not self.config.use_prior:
+                distractor_attention_mask[:, response_start_idx] = 0
+            # Token types
+            # TODO implement
+            # Get the position of the prior and posterior tokens for distractor example
+            distractor_prior_token_id_idxs = torch.where(distractor_ids == self.config.prior_token_id)
+            distractor_posterior_token_id_idxs = torch.where(distractor_ids == self.config.posterior_token_id)
+            # Compute hidden transformation
+            distractor_last_hidden_state = self._compute_hidden_transformation(
+                input_ids=distractor_ids,
+                input_embeds=None,  # FIXME
+                past_key_values=distractor_past_key_values,
+                attention_mask=distractor_attention_mask,
+                token_type_ids=None,  # FIXME
+                position_ids=None,  # FIXME
+                head_mask=head_mask,
+                use_cache=True,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states
+            ).last_hidden_state[distractor_posterior_token_id_idxs]
+        else:
+            distractor_last_hidden_state = None
 
         return (
             past_key_values,
@@ -467,7 +536,8 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             posterior_last_hidden_state,
             posterior_past_key_values,
             posterior_hidden_states,
-            posterior_attentions
+            posterior_attentions,
+            distractor_last_hidden_state
         )
 
     def _decode(
@@ -536,7 +606,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         # Already processed context tokens
         past_key_values = tuple(
             (k[:, :, :response_start_idx - 1], v[:, :, :response_start_idx - 1]) for (k, v) in past_key_values
-        ) if response_start_idx > 1 else None
+        ) if (past_key_values is not None and response_start_idx > 1) else None
         # Input response tokens
         input_ids = input_ids.clone()
         # Remove already processed tokens if not using gradient checkpointing
@@ -773,6 +843,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         if config.tf_size is not None and config.tf_size > 0:
             self.tf_head = nn.Linear(config.hidden_size, config.tf_size, bias=False)
+        if config.retrieval_head:
+            self.retrieval_head = nn.Linear(config.hidden_size, 1, bias=False)
         self.cls_head = nn.Linear(config.hidden_size, config.num_styles, bias=False)
 
         self.init_weights()
@@ -849,6 +921,10 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             output_attentions=None,
             output_hidden_states=None,
             return_dict=None,
+            distractor_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
+            distractor_embeds: Optional[torch.FloatTensor] = None,  # Shape (batch_size, response_length, hidden_size)
+            distractor_attention_mask: Optional[torch.LongTensor] = None,  # Shape (batch_size, [past_length] + response_length)
+            distractor_token_type_ids: Optional[torch.LongTensor] = None,  # Shape (batch_size, response_length)
             **kwargs,
     ):
         # Get output preparation flags
@@ -884,6 +960,15 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
                 "Responses must be aligned (start from same position) to use this model."
         except ValueError:
             response_start_idx = 1
+        # Get retrieval labels if required
+        if distractor_ids is not None or distractor_embeds is not None:
+            retrieval_labels: Optional[torch.FloatTensor] = torch.cat([
+                torch.ones(batch_size, device=device), torch.zeros(batch_size, device=device)
+            ])
+        elif hasattr(self, 'retrieval_head'):
+            retrieval_labels = torch.ones(batch_size, device=device)
+        else:
+            retrieval_labels = None
 
         # Encoding step
         (
@@ -895,7 +980,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             posterior_last_hidden_state,
             posterior_past_key_values,
             posterior_hidden_states,
-            posterior_attentions
+            posterior_attentions,
+            distractor_last_hidden_state  # TODO check whether to return everything of the distractors
         ) = self._encode(
             input_ids=input_ids,
             input_embeds=input_embeds,
@@ -903,6 +989,10 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,
             position_ids=position_ids,
+            distractor_ids=distractor_ids,
+            distractor_embeds=distractor_embeds,
+            distractor_attention_mask=distractor_attention_mask,
+            distractor_token_type_ids=distractor_token_type_ids,
             prior_token_id_idxs=prior_token_id_idxs,
             posterior_token_id_idxs=posterior_token_id_idxs,
             response_start_idx=response_start_idx,
@@ -947,6 +1037,11 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
         lm_logits = self.lm_head(last_hidden_state[:, -(labels.size(1) if labels is not None else 0):])
         # Compute TF model logits
         tf_logits = self.tf_head(latent_last_hidden_state) if hasattr(self, 'tf_head') else None
+        # Compute Retrieval model logits
+        retrieval_logits = self.retrieval_head(torch.cat([
+            posterior_last_hidden_state,
+            distractor_last_hidden_state if distractor_last_hidden_state is not None else torch.empty(0, device=device)
+        ])) if hasattr(self, 'retrieval_head') else None
 
         # Loss computation
         loss_function_output: DLDLMLossFunctionOutput = self.compute_loss_function(
@@ -957,6 +1052,8 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             latent=latent,
             latent_tgt_dist=latent_tgt_dist,
             tf_logits=tf_logits,
+            retrieval_logits=retrieval_logits,
+            retrieval_labels=retrieval_labels,
             batch_size=batch_size,
             **kwargs
         )
@@ -968,6 +1065,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             posterior_logits=posterior_logits[..., self.config.latent_token_ids],
             prior_logits=prior_logits[..., self.config.latent_token_ids],
             tf_logits=tf_logits,
+            retrieval_logits=retrieval_logits,
             latent=latent,
             latent_last_hidden_state=latent_last_hidden_state if output_hidden_states else None,
             past_key_values=past_key_values if use_cache else None,
@@ -981,6 +1079,7 @@ class DLDLMFullModel(DLDLMPreTrainedModel):
             posterior_past_key_values=posterior_past_key_values,
             posterior_hidden_states=posterior_hidden_states,
             posterior_attentions=posterior_attentions,
+            distractor_last_hidden_state=distractor_last_hidden_state
         )
 
         if return_dict:

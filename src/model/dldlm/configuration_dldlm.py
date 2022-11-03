@@ -22,11 +22,13 @@ class DLDLMConfig(GPT2Config):
             n_styles: Optional[int] = None,
             tf_size: Optional[int] = None,
             init_tf_head: bool = True,
+            retrieval_head: bool = False,
 
             unconditioned: bool = False,
             context_pdrop: float = 0.5,
             corruption_rate: float = 0.1,
             do_sample_latent: bool = True,
+            use_prior: bool = True,
             fixed_prior: bool = False,
             detach_posterior: bool = False,
             do_gibbs_sampling: bool = False,
@@ -45,6 +47,7 @@ class DLDLMConfig(GPT2Config):
             prior_entropy_loss: bool = False,
             posterior_entropy_loss: bool = False,
             tf_loss: bool = True,
+            retrieval_loss: bool = False,
             lm_loss_weight: float = 1.0,
             kl_loss_weight: float = 1.0,
             kl_loss_threshold: float = -float('inf'),
@@ -56,6 +59,7 @@ class DLDLMConfig(GPT2Config):
             prior_entropy_loss_weight: float = -1.0,
             posterior_entropy_loss_weight: float = 1.0,
             tf_loss_weight: float = 1.0,
+            retrieval_loss_weight: float = 1.0,
 
             **kwargs,
     ):
@@ -63,10 +67,12 @@ class DLDLMConfig(GPT2Config):
         self.n_styles: Optional[int] = n_styles
         self.tf_size: Optional[int] = tf_size
         self.init_tf_head: bool = init_tf_head
+        self.retrieval_head: bool = retrieval_head
         # Latent analysis hyper-parameters and configs
         self.unconditioned: bool = unconditioned
         self.context_pdrop: float = context_pdrop
         self.corruption_rate: float = corruption_rate
+        self.use_prior: bool = use_prior
         self.fixed_prior: bool = fixed_prior
         self.do_sample_latent: bool = do_sample_latent
         self.detach_posterior: bool = detach_posterior
@@ -87,6 +93,7 @@ class DLDLMConfig(GPT2Config):
         self.prior_entropy_loss: bool = prior_entropy_loss
         self.posterior_entropy_loss: bool = posterior_entropy_loss
         self.tf_loss: bool = tf_loss
+        self.retrieval_loss: bool = retrieval_loss
         self.lm_loss_weight: float = lm_loss_weight
         self.kl_loss_weight: float = kl_loss_weight
         self.kl_loss_threshold: float = kl_loss_threshold
@@ -98,6 +105,7 @@ class DLDLMConfig(GPT2Config):
         self.prior_entropy_loss_weight: float = prior_entropy_loss_weight
         self.posterior_entropy_loss_weight: float = posterior_entropy_loss_weight
         self.tf_loss_weight: float = tf_loss_weight
+        self.retrieval_loss_weight: float = retrieval_loss_weight
 
         super(DLDLMConfig, self).__init__(**kwargs)  # TODO fix unwanted parameters
 
