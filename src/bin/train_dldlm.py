@@ -320,10 +320,12 @@ def init_optimisation_tools():
 
 def process_mini_batch(
         split: str,
-        input_ids: torch.LongTensor,  # Shape (batch_size, )
+        input_ids: torch.LongTensor,  # Shape (batch_size, length)
         attention_mask: torch.LongTensor,  # Shape (batch_size, length)
         labels: torch.LongTensor,  # Shape (batch_size, response_length)
         latent_p_dist: torch.FloatTensor,  # Shape (batch_size, n_styles)
+        distractor_ids: torch.LongTensor,  # Shape (batch_size, length)
+        distractor_attention_mask: torch.LongTensor,  # Shape (batch_size, length)
         raw_data: List[Dict]
 ) -> Union[Tuple[torch.Tensor, Dict[str, torch.Tensor]], Tuple[torch.Tensor, Dict[str, torch.Tensor], List[Dict]]]:
     # Declare global variables
@@ -366,6 +368,8 @@ def process_mini_batch(
     attention_mask = attention_mask.to(device)
     labels = labels.to(device)
     latent_p_dist = latent_p_dist.to(device) if latent_p_dist is not None else None
+    distractor_ids = distractor_ids.to(device) if distractor_ids is not None else None
+    distractor_attention_mask = distractor_attention_mask.to(device) if distractor_attention_mask is not None else None
     # Alpha mixing factor
     alpha = alpha_scheduler.get_alpha() if model.training and alpha_scheduler is not None else 0.0
     # Beta scaling factor
@@ -380,9 +384,12 @@ def process_mini_batch(
                 attention_mask=attention_mask[s_idx:e_idx],
                 labels=labels[s_idx:e_idx],
                 latent_tgt_dist=latent_p_dist[s_idx:e_idx] if latent_p_dist is not None else None,
+                distractor_ids=distractor_ids[s_idx:e_idx] if distractor_ids is not None else None,
+                distractor_attention_mask=distractor_attention_mask[s_idx:e_idx] if distractor_attention_mask is not None else None,
                 latent_mixing_weight=alpha,
                 kl_loss_weight=beta,
-                reduction=model.training
+                reduction=model.training,
+                # use_cache=not (model.training and model.transformer.gradient_checkpointing)
             )
             # Scale losses if model model is training
             if model.training:
