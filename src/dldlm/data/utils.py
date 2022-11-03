@@ -2,7 +2,7 @@ import re
 from enum import Enum
 from torch.utils.data import Dataset
 
-from model import DLDLMTokenizer
+from dldlm.model import DLDLMTokenizer
 
 from typing import List, Dict, Any, Optional
 

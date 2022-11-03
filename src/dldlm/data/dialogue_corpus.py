@@ -18,8 +18,8 @@ from .utils import DataSetSplit, IGNORE_INDEX
 from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
 from .corpora import Hope
 
-from model import DLDLMTokenizer
-from misc import sentiment
+from dldlm.model import DLDLMTokenizer
+from dldlm.misc import sentiment
 
 from typing import List, Tuple, Dict, Optional
 

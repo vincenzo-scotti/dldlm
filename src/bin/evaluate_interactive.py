@@ -12,7 +12,7 @@ import random
 import numpy as np
 import torch
 
-from model import DLDLMTokenizer, DLDLMFullModel
+from dldlm.model import DLDLMTokenizer, DLDLMFullModel
 
 # Variables to control model and evaluation parameters
 # Environment

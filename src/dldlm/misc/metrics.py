@@ -2,7 +2,7 @@ import random
 from typing import Optional, List, Dict, Tuple
 from collections import Counter
 import torch
-from model import DLDLMFullModel, DLDLMTokenizer
+from dldlm.model import DLDLMFullModel, DLDLMTokenizer
 
 
 def groupby(data, key) -> Dict:

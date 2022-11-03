@@ -9,15 +9,15 @@ from typing import Optional, List, Dict
 
 import random
 import numpy as np
-from misc import get_latent_word_stats, get_traces, get_latents_count, get_response_samples, get_latents_correlation_matrix
-from misc import log_word_stats, log_traces, log_latents_count, log_generated_response, log_correlations
-from misc import plot_word_stats, plot_traces, plot_correlations
+from dldlm.misc import get_latent_word_stats, get_traces, get_latents_count, get_response_samples, get_latents_correlation_matrix
+from dldlm.misc import log_word_stats, log_traces, log_latents_count, log_generated_response, log_correlations
+from dldlm.misc import plot_word_stats, plot_traces, plot_correlations
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from data import DLDLMCorpus, DataSetSplit
-from model import DLDLMTokenizer, DLDLMFullModel
+from dldlm.data import DLDLMCorpus, DataSetSplit
+from dldlm.model import DLDLMTokenizer, DLDLMFullModel
 # TODO add fine tuning script
 # TODO add LR plot
 # TODO add warm restart

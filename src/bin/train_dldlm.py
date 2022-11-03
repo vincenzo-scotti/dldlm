@@ -9,19 +9,19 @@ from typing import Optional, Union, Tuple, List, Dict
 
 import random
 import numpy as np
-from misc import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
-from misc import get_latent_word_stats, get_traces, get_latents_count, get_response_samples
-from misc import log_word_stats, log_traces, log_latents_count, log_generated_response
-from misc import plot_word_stats, plot_traces
+from dldlm.misc import EvaluationMode, LOSS_EVALUATION_MODE_MAPPING
+from dldlm.misc import get_latent_word_stats, get_traces, get_latents_count, get_response_samples
+from dldlm.misc import log_word_stats, log_traces, log_latents_count, log_generated_response
+from dldlm.misc import plot_word_stats, plot_traces
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.cuda.amp import GradScaler
-from misc import LinearLR, AlphaLinearScheduler, BetaCyclicalAnnealer
+from dldlm.misc import LinearLR, AlphaLinearScheduler, BetaCyclicalAnnealer
 from torch.utils.tensorboard import SummaryWriter
 
-from data import DLDLMCorpus, DataSetSplit
-from model import DLDLMTokenizer, DLDLMFullModel
+from dldlm.data import DLDLMCorpus, DataSetSplit
+from dldlm.model import DLDLMTokenizer, DLDLMFullModel
 # TODO add fine tuning script
 # TODO add LR plot
 # TODO add warm restart
