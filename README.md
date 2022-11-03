@@ -96,6 +96,9 @@ There is a script available to chat directly with any of the models, it can be r
 python ./src/bin/evaluate_interactive.py
 ```
 
+Alternatively there is the `chatbot_api` sub-module designed for the re-use of the agent outside the repository.
+The API uses the base [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) class from the [Transformers](https://huggingface.co/docs/transformers/index) library instead of the *DLDLM* extension we provide to promote re-use (note that it is not mandatory to install the other libraries in this case).
+
 ## References
 
 If you are willing to use our code or our models, please cite our work through the following BibTeX entry:
