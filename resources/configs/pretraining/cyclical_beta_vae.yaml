@@ -31,7 +31,7 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-5
+    lr: &lr 1.e-5
   n_epochs: &n_epochs 5
   max_gradient_norm: 1.0
 

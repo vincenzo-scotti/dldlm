@@ -16,10 +16,13 @@ dldlm:
       n_styles: &n_styles 16
       tf_size: 50256
       init_tf_head: true
+      retrieval_head: true
+      use_prior: false
       context_pdrop: 0.0
       corruption_rate: 0.0
       kl_loss: false
       sampling_loss: true
+      retrieval_loss: true
     generate_kwargs:
       max_length: 384
       min_length: 1
@@ -33,7 +36,7 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-5
+    lr: &lr 1.e-5
   n_epochs: 5
   max_gradient_norm: 1.0
 
@@ -69,6 +72,7 @@ data:
       - personachat
       - wizard_of_wikipedia
     latent_init: false
+    distractor: true
     max_context_length: 256
     max_response_length: 128
   splits:
