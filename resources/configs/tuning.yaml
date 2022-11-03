@@ -1,5 +1,5 @@
-experiment_series: DLDLM_adaptation
-experiment_id: dldlm_large_weighted_nllt_gibbs
+experiment_series: DLDLM_finetuning
+experiment_id: dldlm_large_nllt_gibbs
 experiments_directory_path: ./experiments/
 
 random_seed: &random_seed 2307
@@ -11,21 +11,10 @@ log_file: true
 
 dldlm:
   model:
-    pretrained: &pretrained ./experiments/DLDLM_pretraining/dldlm_large_2022_09_12_10_23_24/model/best_checkpoint
+    init: false
+    pretrained: &pretrained ./resources/models/dldlm
     kwargs:
-      n_styles: &n_styles 16
-      tf_size: 0
-      init_tf_head: true
-      context_pdrop: 0.0
-      corruption_rate: 0.0
-      kl_loss: false
-      behaviour_loss: true
-      sampling_loss: true
-      behaviour_loss_weight: 0.001
-      behaviour_loss_threshold: 0.125
-      sampling_loss_weight: 0.1
-      sampling_loss_threshold: 0.125
-      tf_loss: false
+      do_gibbs_sampling: true
     generate_kwargs:
       max_length: 512
       min_length: 1
@@ -34,12 +23,12 @@ dldlm:
       top_k: 0
       temperature: 0.7
   tokeniser:
+    init: false
     pretrained: *pretrained
-    n_styles: *n_styles
 
 optimizer:
   kwargs:
-    lr: &lr 5.e-6
+    lr: &lr 1.e-6
   n_epochs: 3
   max_gradient_norm: 1.0
 
@@ -68,7 +57,7 @@ data:
   corpora_dir_path: ./resources/data/raw/
   cache_dir_path: ./resources/data/cache/
   kwargs:
-    corpus_prefix: adaptation_corpus
+    corpus_prefix: finetuning_corpus
     corpus_list:
       - HOPE_WSDM_2022
     latent_init: false
