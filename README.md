@@ -44,19 +44,24 @@ conda install -c plotly plotly
 conda install -c conda-forge python-kaleido
 ```
 
-## Training
-
-### Run
-
-There is a script to train or fine-tune the model, it expects to have the `./src` in the Python path and all data sets to be downloaded and placed in the `./resources/data/raw/` directory. 
-
-to add the directory to the Python, you can add this line to the file `~/.bashrc`
+To add the source code directory to the Python path, you can add this line to the file `~/.bashrc`
 
 ```bash
 export PYTHONPATH=$PYTHONPATH:/path/to/dldlm/src
 ```
 
-To run the training in background execute:
+## Training
+
+### Run
+
+There is a script to train or fine-tune the model, it expects to have `./src` in the Python path and all data sets to be downloaded and placed in the `./resources/data/raw/` directory.
+
+To train or fine-tune the model run:
+```bash
+python ./src/bin/train_dldlm.py --config_file_path ./resources/configs/path/to/config.yaml
+```
+
+To train or fine-tune the model in background run:
 
 ```bash
 nohup python ./src/bin/train_dldlm.py --config_file_path ./resources/configs/path/to/config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
