@@ -15,8 +15,7 @@ dldlm:
     pretrained: &pretrained ./resources/models/dldlm
     kwargs:
       do_gibbs_sampling: true
-      behaviour_loss_weight: 0.01
-      sampling_loss_weight: 0.01
+      lm_loss_weight: 0.0
     generate_kwargs:
       max_length: 512
       min_length: 1
@@ -30,7 +29,7 @@ dldlm:
 
 optimizer:
   kwargs:
-    lr: &lr 1.e-7
+    lr: &lr 1.e-9
   n_epochs: 5
   max_gradient_norm: 1.0
 
