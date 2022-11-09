@@ -1,5 +1,5 @@
 experiment_series: DLDLM_finetuning
-experiment_id: dldlm_large_nllt_gibbs
+experiment_id: dldlm_large_lm_only
 experiments_directory_path: ./experiments/
 
 random_seed: &random_seed 2307
