@@ -90,7 +90,7 @@ There is a script to run the final evaluation of the model, the requirements to 
 To run the evaluation in background execute:
 
 ```bash
-nohup python ./src/bin/evaluate_static.py --config_file_path ./resources/configs/path/to/config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
+nohup python ./src/bin/evaluate_static.py --config_file_path ./resources/configs/path/to/training/config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
 ```
 
 ## Chatting
@@ -98,11 +98,32 @@ nohup python ./src/bin/evaluate_static.py --config_file_path ./resources/configs
 There is a script available to chat directly with any of the models, it can be run using the following command:
 
 ```bash
-python ./src/bin/evaluate_interactive.py
+python ./src/bin/evaluate_interactive.py --config_file_path ./resources/configs/path/to/inference/config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
 ```
 
 Alternatively there is the `chatbot_api` sub-module designed for the re-use of the agent outside the repository.
 The API uses the base [GPT-2](https://huggingface.co/docs/transformers/model_doc/gpt2) class from the [Transformers](https://huggingface.co/docs/transformers/index) library instead of the *DLDLM* extension we provide to promote re-use (note that it is not mandatory to install the other libraries in this case).
+
+Here follows a usage example
+
+```python
+from dldlm.chatbot_api.chatbot import DLDLMChatbot
+
+
+# Define generate parameters (see HuggingFace Transformers documentation)
+generate_kwargs = {'top_p': 0.9, 'top_k': 0, 'temperature': 1.0, 'do_sample': True}
+# Create chatbot instance
+chatbot = DLDLMChatbot(
+  './resources/models/dldlm',
+  max_context_len=256,
+  max_response_len=128,
+  generate_kwargs=generate_kwargs
+)
+# Define context (list of previous turns)
+context = ['Hello, how are you?', 'Fine thanks, what about you?']
+# Generate response
+response = chatbot(context)
+```
 
 ## References
 
