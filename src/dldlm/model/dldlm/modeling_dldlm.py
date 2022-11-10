@@ -28,9 +28,8 @@ _CONFIG_FOR_DOC = "DLDLMConfig"
 _TOKENIZER_FOR_DOC = "DLDLMTokenizer"
 
 DLDLM_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "dldlm-small",
-    "dldlm-medium",
     "dldlm-large",
+    "dldlm-large-therapy",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 ]
 

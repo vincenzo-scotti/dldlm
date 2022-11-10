@@ -6,9 +6,8 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 DLDLM_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "dldlm-small": "https://huggingface.co/vincenzo-scotti/dldlm-small/resolve/main/config.json",
-    "dldlm-medium": "https://huggingface.co/vincenzo-scotti/dldlm-medium/resolve/main/config.json",
     "dldlm-large": "https://huggingface.co/vincenzo-scotti/dldlm-large/resolve/main/config.json",
+    "dldlm-large-therapy": "https://huggingface.co/vincenzo-scotti/dldlm-large-therapy/resolve/main/config.json",
     # See all Discrete Latent Dialogue Language Model models at https://huggingface.co/models?filter=dldlm
 }
 
