@@ -11,6 +11,6 @@ Pretraining experiments (all with LM objective):
 - [x] Beta cyclical annealing and KL-Divergence latent objective with BoW ([βVAE]( https://aclanthology.org/N19-1021.pdf )-like, for comparison)
 
 Tuning experiments:
-- [ ] NLLt latent objective and [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling) with LM
-- [ ] NLLt latent objective and Gibbs sampling without LM
-- [ ] Gibbs sampling with LM
+- [x] NLLt latent objective and [Gibbs sampling](https://en.wikipedia.org/wiki/Gibbs_sampling) with LM
+- [x] NLLt latent objective and Gibbs sampling without LM
+- [x] Gibbs sampling with LM
