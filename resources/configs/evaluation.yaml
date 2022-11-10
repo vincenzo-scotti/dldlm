@@ -1,45 +1,21 @@
-experiment_series: DLDLM_pretraining
-experiment_id: dldlm_large
+experiment_series: DLDLM_evaluation
+experiment_id: dldlm_large_ #
 experiments_directory_path: ./experiments/
 
-reference_experiment: # Path to previously run experiment, if not available all directories will be created as in training
-
-random_seed: 2307
+random_seed: &random_seed 2307
 mixed_precision: true
+checkpoint_gradient: true
 
 log_level: DEBUG
 log_file: true
 
 dldlm:
   model:
-    generate_kwargs:
-      max_length: 512
-      min_length: 1
-      do_sample: true
-      top_p: 1.0
-      top_k: 0
-      temperature: 0.7
-
-evaluation:
-  validation_period: 2048
-  monitored_metric: loss
-  metrics:
-    word_count:
-      top_n: 20
-    traces:
-      window_size: 4
-    sample_responses:
-      n_samples: 8
-    word_stats: {}
-    correlations:
-      corpus: {}
-      sentiment: {}
-      dialogue_act:
-        corpus_list:
-          - HOPE
-      speaker:
-        corpus_list:
-          - HOPE
+    init: false
+    pretrained: &pretrained ./resources/models/dldlm #
+  tokeniser:
+    init: false
+    pretrained: *pretrained
 
 data:
   corpora_dir_path: ./resources/data/raw/
@@ -47,25 +23,23 @@ data:
   kwargs:
     corpus_prefix: evaluation_corpus
     corpus_list:
+      - HOPE_WSDM_2022
       - dailydialog
       - empatheticdialogues
       - personachat
       - wizard_of_wikipedia
-      - HOPE_WSDM_2022
+    latent_init: false
     max_context_length: 256
     max_response_length: 256
-    count_word_tokens: true
-    incremental_tf_idf: false
-    compute_sentiment: true
   splits:
-#    train:
-#      mini_batch_size: 128
-#      in_mem: 2
-#      n_workers: &n_workers 4
-    validation:
+    train:
       mini_batch_size: &eval_mini_batch_size 16
       in_mem: *eval_mini_batch_size
       n_workers: &n_workers 4
+    validation:
+      mini_batch_size:
+      in_mem: *eval_mini_batch_size
+      n_workers: *n_workers
     test:
       mini_batch_size: *eval_mini_batch_size
       in_mem: *eval_mini_batch_size
