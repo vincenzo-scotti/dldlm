@@ -59,30 +59,15 @@ tokenizer: DLDLMTokenizer
 corpus_configs: Dict
 corpora: Dict[DataSetSplit, DLDLMCorpus] = dict()
 corpus_loaders: Dict[DataSetSplit, DataLoader] = dict()
-# Optimisation
-optimizer_configs: Dict
-optimizer: Optimizer
-scaler: Optional[GradScaler] = None
-lr_scheduler_configs: Optional[Dict] = None
-lr_scheduler: Optional[LinearLR] = None
-alpha_scheduler_configs: Optional[Dict] = None
-alpha_scheduler: Optional[AlphaLinearScheduler] = None
-beta_scheduler_configs: Optional[Dict] = None
-beta_scheduler: Optional[BetaCyclicalAnnealer] = None
-evaluation_configs: Dict
 # Experiment dir path
 current_experiment_dir_path: str
 data_dir_path: str
-# Checkpoint paths
-model_checkpoint_path: str
-best_model_checkpoint_path: str
 
 
 def init_environment(config_file_path: str):
     # Declare global variables
     global random_seed, device, mixed_precision, checkpoint_gradient, writer
-    global model_configs, tokenizer_configs, corpus_configs, \
-        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, alpha_scheduler_configs, evaluation_configs
+    global model_configs, tokenizer_configs, corpus_configs
     global current_experiment_dir_path, data_dir_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
@@ -149,11 +134,6 @@ def init_environment(config_file_path: str):
     # Load remaining configs
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
-    optimizer_configs = configs['optimizer']
-    lr_scheduler_configs = configs.get('lr_scheduler')
-    alpha_scheduler_configs = configs.get('alpha_scheduler')
-    beta_scheduler_configs = configs.get('beta_scheduler')
-    evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
 
@@ -172,7 +152,7 @@ def clean_environment():
 
 def init_model():
     # Declare global variables
-    global tokenizer_configs, model_configs, tokenizer, model, model_checkpoint_path, best_model_checkpoint_path, checkpoint_gradient
+    global tokenizer_configs, model_configs, tokenizer, model, checkpoint_gradient
     # Create tokeniser instance
     if tokenizer_configs.get('init', True):
         tokenizer = DLDLMTokenizer.from_pretrained(
@@ -184,9 +164,6 @@ def init_model():
     else:
         tokenizer = DLDLMTokenizer.from_pretrained(tokenizer_configs['pretrained'])
         logging.info("Tokeniser instantiated")
-    # Serialise tokeniser
-    tokenizer.save_pretrained(model_checkpoint_path)
-    tokenizer.save_pretrained(best_model_checkpoint_path)
     logging.info("Tokeniser serialised in checkpoint directories")
     # Create model instance
     if model_configs.get('init', True):
@@ -228,7 +205,7 @@ def init_data_loaders():
             data_set,
             batch_size=corpus_configs['splits'][split]['mini_batch_size'],
             num_workers=corpus_configs['splits'][split]['n_workers'],
-            shuffle=DataSetSplit(split) == DataSetSplit.TRAIN,
+            shuffle=False,
             collate_fn=data_set.collate
         )
         logging.info(f"{split.capitalize()} data loader instantiated")
@@ -278,10 +255,6 @@ def process_mini_batch(
     latent_p_dist = latent_p_dist.to(device) if latent_p_dist is not None else None
     distractor_ids = distractor_ids.to(device) if distractor_ids is not None else None
     distractor_attention_mask = distractor_attention_mask.to(device) if distractor_attention_mask is not None else None
-    # Alpha mixing factor
-    alpha = alpha_scheduler.get_alpha() if model.training and alpha_scheduler is not None else 0.0
-    # Beta scaling factor
-    beta = beta_scheduler.get_beta() if model.training and beta_scheduler is not None else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
     for s_idx, e_idx in idxs:
@@ -294,8 +267,6 @@ def process_mini_batch(
                 latent_tgt_dist=latent_p_dist[s_idx:e_idx] if latent_p_dist is not None else None,
                 distractor_ids=distractor_ids[s_idx:e_idx] if distractor_ids is not None else None,
                 distractor_attention_mask=distractor_attention_mask[s_idx:e_idx] if distractor_attention_mask is not None else None,
-                latent_mixing_weight=alpha,
-                kl_loss_weight=beta,
                 reduction=model.training,
                 # use_cache=not (model.training and model.transformer.gradient_checkpointing)
             )
@@ -313,8 +284,8 @@ def process_mini_batch(
                 sample['latent'] = '<|unconditioned|>'
         else:
             for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
-                sample['prior_p_dist'] = model_outputs.prior_logits[idx].squeeze()
-                sample['posterior_p_dist'] = model_outputs.posterior_logits[idx].squeeze()
+                sample['latent_prior_dist'] = torch.softmax(model_outputs.prior_logits[idx].squeeze(), dim=-1)
+                sample['latent_posterior_dist'] = torch.softmax(model_outputs.posterior_logits[idx].squeeze(), dim=-1)
 
     return loss, losses_dict, raw_data
 
@@ -364,10 +335,10 @@ def process_evaluation(
     kl_divergence = kl_divergence.mean().cpu().item()
     # Sampled latent distributions
     for sample in processed_data:
-        if isinstance(sample['prior_p_dist'], torch.Tensor):
-            sample['prior_p_dist'] = sample['prior_p_dist'].cpu().tolist()
-        if isinstance(sample['posterior_p_dist'], torch.Tensor):
-            sample['posterior_p_dist'] = sample['posterior_p_dist'].cpu().tolist()
+        if isinstance(sample['latent_prior_dist'], torch.Tensor):
+            sample['latent_prior_dist'] = sample['latent_prior_dist'].cpu().tolist()
+        if isinstance(sample['latent_posterior_dist'], torch.Tensor):
+            sample['latent_posterior_dist'] = sample['latent_posterior_dist'].cpu().tolist()
     # Log losses
     writer.add_scalar(f'Loss/{sub_tag}', validation_loss, step)
     writer.add_scalars(
@@ -409,16 +380,16 @@ def evaluate_model():
     # Iterate over splits
     for split, args in args_dict.items():
         # Log start on current set
-        logging.info(f"{split.capitalize()} set evaluation started")
+        logging.info(f"{split.value.capitalize()} set evaluation started")
         # Compute summary report on validation set
         report: str = process_evaluation(*args)
         # Log end on current set
-        logging.info(f"{split.capitalize()} set evaluation finished")
+        logging.info(f"{split.value.capitalize()} set evaluation finished")
         logging.info('\n' + report)
         # Print test results
         print(report)
         # Log test results in TensorBoard
-        writer.add_text(f'{split.capitalize()} set evaluation results', report)
+        writer.add_text(f'{split.value.capitalize()} set evaluation results', report)
     # Close evaluation
     # Get current date and time
     end_time: datetime = datetime.now()
