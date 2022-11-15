@@ -286,6 +286,8 @@ def process_mini_batch(
             for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
                 sample['latent_prior_dist'] = torch.softmax(model_outputs.prior_logits[idx].squeeze(), dim=-1)
                 sample['latent_posterior_dist'] = torch.softmax(model_outputs.posterior_logits[idx].squeeze(), dim=-1)
+                sample['prior_hidden_state'] = model_outputs.prior_last_hidden_state[idx].squeeze().cpu()
+                sample['posterior_hidden_state'] = model_outputs.posterior_last_hidden_state[idx].squeeze().cpu()
 
     return loss, losses_dict, raw_data
 
@@ -339,6 +341,10 @@ def process_evaluation(
             sample['latent_prior_dist'] = sample['latent_prior_dist'].cpu().tolist()
         if isinstance(sample['latent_posterior_dist'], torch.Tensor):
             sample['latent_posterior_dist'] = sample['latent_posterior_dist'].cpu().tolist()
+        if isinstance(sample['prior_hidden_state'], torch.Tensor):
+            sample['prior_hidden_state'] = sample['prior_hidden_state'].tolist()
+        if isinstance(sample['posterior_hidden_state'], torch.Tensor):
+            sample['posterior_hidden_state'] = sample['posterior_hidden_state'].tolist()
     # Log losses
     writer.add_scalar(f'Loss/{sub_tag}', validation_loss, step)
     writer.add_scalars(
@@ -347,7 +353,7 @@ def process_evaluation(
         step
     )
     # Serialise processed data
-    with bz2.BZ2File(os.path.join(data_dir_path, f'evaluation_output_{split}'), 'w') as f:
+    with bz2.BZ2File(os.path.join(data_dir_path, f'evaluation_output_{split}.pbz2'), 'w') as f:
         pickle.dump(processed_data, f)
 
     # Do the final report
