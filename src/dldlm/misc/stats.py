@@ -58,6 +58,6 @@ def sentiment(sample: str) -> str:
         elif polarity < 0.6:
             return 'Positive'
         else:
-            return 'Very Positive'
+            return 'Very positive'
 
     return encode_sentiment(spacy_nlp(sample)._.blob.polarity)
