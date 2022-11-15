@@ -16,7 +16,7 @@ import torch
 from torch.utils.data import Dataset
 from .utils import DataSetSplit, IGNORE_INDEX
 from .corpora import DailyDialog, EmpatheticDialogues, PersonaChat, WizardOfWikipedia
-from .corpora import Hope
+from .corpora import CounsellingAndPsychotherapyCorpus, Hope
 
 from dldlm.model import DLDLMTokenizer
 from dldlm.misc import sentiment
@@ -24,6 +24,7 @@ from dldlm.misc import sentiment
 from typing import List, Tuple, Dict, Optional
 
 CORPORA: Dict = {
+    CounsellingAndPsychotherapyCorpus.IDENTIFIER: CounsellingAndPsychotherapyCorpus,
     DailyDialog.IDENTIFIER: DailyDialog,
     EmpatheticDialogues.IDENTIFIER: EmpatheticDialogues,
     Hope.IDENTIFIER: Hope,

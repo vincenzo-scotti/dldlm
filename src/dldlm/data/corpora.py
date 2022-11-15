@@ -1,5 +1,6 @@
 import os
 
+from sklearn.model_selection import train_test_split
 from .utils import DataSetSplit, DialogueCorpus
 
 from joblib import Parallel
@@ -11,7 +12,7 @@ import re
 import json
 import pandas as pd
 
-from typing import List, Dict, Pattern, Iterable
+from typing import List, Dict, Pattern, Iterable, Union, Optional
 
 
 # TODO move context management to dialogue corpus and threat it here as a list of strings
@@ -237,6 +238,88 @@ class WizardOfWikipedia(DialogueCorpus):
         # Load split of the corpus
         with open(os.path.join(self.corpus_dir_path, file_name)) as f:
             dialogues = json.loads(f.read())
+
+        # Standardise corpus
+        with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
+            return sum(Parallel(verbose=self.verbosity_level)(
+                delayed(self._preprocess_dialogue)(dialogue, idx) for idx, dialogue in enumerate(dialogues)
+            ), [])
+
+
+class CounsellingAndPsychotherapyCorpus(DialogueCorpus):
+    IDENTIFIER = 'Counseling_and_Psychotherapy_Transcripts_Volume_II'
+    VALID_LINE_REGEX: Pattern[str] = re.compile(r'^(CLIENT|THERAPIST): .+$')
+    ROLES_DECODER: Dict = {'THERAPIST': 'Therapist', 'CLIENT': 'Patient'}  # TODO ask mark how to approach this
+
+    def __init__(
+            self,
+            corpus_dir_path: str,
+            data_set_split: str,
+            *args,
+            validation_size: Union[int, float] = 50,
+            test_size: Union[int, float] = 50,
+            random_seed: Optional[int] = 0,
+            **kwargs
+    ):
+        # Get file list
+        self.file_list: List[str] = os.listdir(corpus_dir_path)
+        # Get indices list
+        idxs = range(len(self.file_list))
+        # Do train/validation/test split on the indices
+        train_idxs, test_idxs = train_test_split(idxs, test_size=test_size, random_state=random_seed)
+        train_idxs, validation_idxs = train_test_split(train_idxs, test_size=validation_size, random_state=random_seed)
+        # Load the desired split
+        if DataSetSplit(data_set_split) == DataSetSplit.TRAIN:
+            self.file_list = [self.file_list[idx] for idx in train_idxs]
+        elif DataSetSplit(data_set_split) == DataSetSplit.VALIDATION:
+            self.file_list = [self.file_list[idx] for idx in validation_idxs]
+        elif DataSetSplit(data_set_split) == DataSetSplit.TEST:
+            self.file_list = [self.file_list[idx] for idx in test_idxs]
+        else:
+            raise ValueError(f"Unsupported data split: {data_set_split}")
+        # Finally call super-class constructor
+        super(CounsellingAndPsychotherapyCorpus, self).__init__(corpus_dir_path, data_set_split, *args, **kwargs)
+
+    def _preprocess_dialogue(self, original_dialogue, dialogue_idx: int) -> List[Dict]:
+        lines: List[str] = original_dialogue.strip().split('\n')
+
+        if not all(self.VALID_LINE_REGEX.match(line) for line in lines):
+            return []
+        # Replace missing/corrupted parts symbol with a generic indicator
+        lines = [line.replace('<|unknown|>', '###').strip() for line in lines]
+        # Dialogue samples
+        dialogue_turns = [
+            (utterance.strip(), self.ROLES_DECODER[speaker.strip()])
+            for speaker, utterance in (line.split(': ', 1) for line in lines)
+        ]
+        # Dialogue contexts
+        dialogue_contexts = self._get_dialogue_contexts([utterance for utterance, *_ in dialogue_turns])
+        # Pre-processed dialogue
+        dialogue: List[Dict] = [
+            {
+                'split': self.data_set_split.value,
+                'corpus': 'Counselling and Psychotherapy Transcripts Volume II',
+                'conversation_idx': dialogue_idx,
+                'turn_idx': turn_idx,
+                'context': context,
+                'response': response,
+                'speaker': speaker,
+            }
+            for turn_idx, (context, (response, speaker)) in enumerate(zip(dialogue_contexts, dialogue_turns))
+        ]
+        return dialogue
+
+    def _load_samples(self) -> List[Dict]:
+        # Define helper function to load the samples
+        def load_txt(file_path):
+            with open(file_path) as f:
+                raw_text = f.read()
+            return raw_text
+
+        # Load split of the corpus
+        dialogues = [
+            load_txt(os.path.join(self.corpus_dir_path, file_name)) for file_name in self.file_list
+        ]
 
         # Standardise corpus
         with parallel_backend(self.parallel_backend, n_jobs=self.n_jobs):
