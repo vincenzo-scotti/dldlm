@@ -570,12 +570,16 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         )
 
         # Latent decoding step
-        # If model is misc process latent embedding and then the rest of the sequence
+        # Get sampling temperature
+        tau = kwargs.get('sampling_tau', self.config.sampling_tau)
+        # If model is training process latent embedding and then the rest of the sequence
         if self.training:
             # Compute latent embedding
             # If doing gibbs sampling for fine tuning sample from original distribution
             if kwargs.get('do_gibbs_sampling', self.config.do_gibbs_sampling):
-                p_soft = torch.softmax(posterior_logits if posterior_logits is not None else prior_logits, dim=-1)
+                p_soft = torch.softmax(
+                    (posterior_logits if posterior_logits is not None else prior_logits) / tau, dim=-1
+                )
                 latent_ids = torch.multinomial(p_soft, 1)
                 p_hard = torch.zeros_like(
                     posterior_logits if posterior_logits is not None else prior_logits,
@@ -585,7 +589,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
             # Else if doing pretraining sample from gumbel distribution
             else:
                 latent_ids_sparse = F.gumbel_softmax(
-                    (posterior_logits if posterior_logits is not None else prior_logits), hard=True
+                    (posterior_logits if posterior_logits is not None else prior_logits) / tau, hard=True
                 )
                 latent_ids = torch.argmax(latent_ids_sparse, dim=-1).unsqueeze(-1)
             latent_embeds = torch.einsum('vh, bv -> bh', self.transformer.wte.weight, latent_ids_sparse)  # .unsqueeze(1)
@@ -593,7 +597,7 @@ class DLDLMPreTrainedModel(GPT2PreTrainedModel):
         else:
             if kwargs.get('do_sample_latent', self.config.do_sample_latent):
                 latent_ids = torch.multinomial(torch.softmax(
-                        (posterior_logits if posterior_logits is not None else prior_logits), dim=-1
+                        (posterior_logits if posterior_logits is not None else prior_logits) / tau, dim=-1
                 ), 1)
             else:
                 latent_ids = torch.argmax(

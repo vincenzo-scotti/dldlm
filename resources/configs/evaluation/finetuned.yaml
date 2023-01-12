@@ -12,7 +12,7 @@ log_file: true
 dldlm:
   model:
     init: false
-    pretrained: &pretrained ./resources/models/dldlm_therapy
+    pretrained: &pretrained /home/vincenzo/Documents/dldlm/experiments/DLDLM_finetuning/dldlm_large_nllt_gibbs_2022_11_07_09_29_01/model/best_checkpoint
   tokeniser:
     init: false
     pretrained: *pretrained
@@ -24,6 +24,7 @@ data:
     corpus_prefix: evaluation_corpus
     corpus_list:
       - HOPE_WSDM_2022
+      - Counseling_and_Psychotherapy_Transcripts_Volume_II
       - dailydialog
       - empatheticdialogues
       - personachat

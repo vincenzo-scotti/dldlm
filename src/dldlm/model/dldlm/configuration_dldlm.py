@@ -31,6 +31,7 @@ class DLDLMConfig(GPT2Config):
             fixed_prior: bool = False,
             detach_posterior: bool = False,
             do_gibbs_sampling: bool = False,
+            sampling_tau: float = 1.0,
 
             unknown_token_id: Optional[int] = None,
             mask_token_id: Optional[int] = None,
@@ -76,6 +77,7 @@ class DLDLMConfig(GPT2Config):
         self.do_sample_latent: bool = do_sample_latent
         self.detach_posterior: bool = detach_posterior
         self.do_gibbs_sampling: bool = do_gibbs_sampling
+        self.sampling_tau: float = sampling_tau
         # Special tokens
         self.unknown_token_id: Optional[int] = unknown_token_id
         self.mask_token_id: Optional[int] = mask_token_id

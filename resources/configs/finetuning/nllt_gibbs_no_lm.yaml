@@ -12,7 +12,7 @@ log_file: true
 dldlm:
   model:
     init: false
-    pretrained: &pretrained ./resources/models/dldlm
+    pretrained: &pretrained /home/vincenzo/Documents/dldlm/experiments/DLDLM_pretraining/dldlm_large_nllt_lda_lr_2022_10_10_17_04_19/model/best_checkpoint
     kwargs:
       do_gibbs_sampling: true
       lm_loss_weight: 0.0

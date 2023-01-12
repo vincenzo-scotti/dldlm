@@ -74,6 +74,8 @@ alpha_scheduler_configs: Optional[Dict] = None
 alpha_scheduler: Optional[AlphaLinearScheduler] = None
 beta_scheduler_configs: Optional[Dict] = None
 beta_scheduler: Optional[BetaCyclicalAnnealer] = None
+tau_scheduler_configs: Optional[Dict] = None
+tau_scheduler: Optional[AlphaLinearScheduler] = None
 evaluation_configs: Dict
 # Experiment dir path
 latent_count_txt_dir_path: str
@@ -92,7 +94,8 @@ def init_environment(config_file_path: str):
     # Declare global variables
     global random_seed, device, mixed_precision, checkpoint_gradient, writer
     global model_configs, tokenizer_configs, corpus_configs, \
-        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, alpha_scheduler_configs, evaluation_configs
+        optimizer_configs, lr_scheduler_configs, beta_scheduler_configs, alpha_scheduler_configs, \
+        tau_scheduler_configs, evaluation_configs
     global current_experiment_dir_path, latent_count_txt_dir_path, count_plots_dir_path, trace_plots_dir_path, \
         count_txt_dir_path, trace_txt_dir_path, sample_responses_txt_dir_path, \
         model_checkpoint_path, best_model_checkpoint_path
@@ -195,6 +198,7 @@ def init_environment(config_file_path: str):
     lr_scheduler_configs = configs.get('lr_scheduler')
     alpha_scheduler_configs = configs.get('alpha_scheduler')
     beta_scheduler_configs = configs.get('beta_scheduler')
+    tau_scheduler_configs = configs.get('tau_scheduler')
     evaluation_configs = configs['evaluation']
     corpus_configs = configs['data']
     logging.info("Initialisation completed")
@@ -287,7 +291,8 @@ def init_optimisation_tools():
     global scaler, optimizer_configs, optimizer, \
         lr_scheduler_configs, lr_scheduler, \
         alpha_scheduler_configs, alpha_scheduler, \
-        beta_scheduler_configs, beta_scheduler
+        beta_scheduler_configs, beta_scheduler, \
+        tau_scheduler_configs, tau_scheduler
     # Create optimiser instance
     optimizer = torch.optim.AdamW(params=model.parameters(), **optimizer_configs['kwargs'])
     logging.info("Optimiser instantiated")
@@ -312,6 +317,11 @@ def init_optimisation_tools():
         # Create beta scheduler
         beta_scheduler = BetaCyclicalAnnealer(steps, **beta_scheduler_configs)
         logging.info("Beta cyclical annealing scheduler instantiated")
+    # If using tau scheduling create instance of scheduler
+    if tau_scheduler_configs is not None:
+        # Create beta scheduler
+        tau_scheduler = AlphaLinearScheduler(steps, **tau_scheduler_configs)
+        logging.info("Tau linear scheduler instantiated")
     # Create scaler if using mixed precision
     if mixed_precision:
         scaler = GradScaler()
@@ -374,6 +384,8 @@ def process_mini_batch(
     alpha = alpha_scheduler.get_alpha() if model.training and alpha_scheduler is not None else 0.0
     # Beta scaling factor
     beta = beta_scheduler.get_beta() if model.training and beta_scheduler is not None else 1.0
+    # Sampling tau factor
+    tau = tau_scheduler.get_alpha() if model.training and tau_scheduler is not None else 1.0
     # Loop over sub_batches to fit in memory
     idxs = ((idx, min(mini_batch_size, idx + in_mem)) for idx in range(0, mini_batch_size, in_mem))
     for s_idx, e_idx in idxs:
@@ -388,6 +400,7 @@ def process_mini_batch(
                 distractor_attention_mask=distractor_attention_mask[s_idx:e_idx] if distractor_attention_mask is not None else None,
                 latent_mixing_weight=alpha,
                 kl_loss_weight=beta,
+                sampling_tau=tau,
                 reduction=model.training,
                 # use_cache=not (model.training and model.transformer.gradient_checkpointing)
             )
@@ -453,6 +466,8 @@ def process_mini_batch(
             alpha_scheduler.step()
         if beta_scheduler is not None:
             beta_scheduler.step()
+        if tau_scheduler is not None:
+            tau_scheduler.step()
         # Reset optimiser and model gradients  # Taken from
         for param in model.parameters():
             param.grad = None

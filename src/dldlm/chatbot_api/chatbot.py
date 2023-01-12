@@ -10,7 +10,8 @@ from typing import Tuple, List, Union, Literal, Dict, Optional, Pattern
 class DLDLMChatbot:
     def __init__(
             self,
-            pretrained_model: str,
+            gpt2: Union[str, GPT2LMHeadModel],
+            tokenizer: Optional[Union[str, GPT2Tokenizer]],
             prior_token: str = '<|prior|>',
             posterior_token: str = '<|posterior|>',
             latent_token_regex: Pattern[str] = re.compile(r'<[|]latentcode(\d+)[|]>'),
@@ -24,8 +25,11 @@ class DLDLMChatbot:
             generate_kwargs: Optional[Dict] = None
     ):
         super(DLDLMChatbot, self).__init__()
-        # Internal tokenizer
-        self.tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained(pretrained_model)
+        # Dialogue Language Model
+        self.gpt2: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained(gpt2).eval() if isinstance(gpt2, str) else gpt2
+        # Tokenizer
+        tokenizer = tokenizer if tokenizer is not None else (gpt2 if isinstance(gpt2, str) else self.gpt2.config._name_or_path)
+        self.tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained(tokenizer) if isinstance(tokenizer, str) else tokenizer
         # Special tokens
         self.prior_token: str = prior_token
         self.prior_token_id: int = self.tokenizer.convert_tokens_to_ids(self.prior_token)
@@ -48,8 +52,8 @@ class DLDLMChatbot:
         self.device: torch.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.mixed_precision: bool = mixed_precision and self.device.type == 'cuda'
         self.in_mem: int = in_mem if in_mem is not None else len(self.latent_token_ids)
-        # Finally load internal neural network model
-        self.nn_model: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained(pretrained_model).eval().to(device)
+        # Move model to device
+        self.gpt2 = self.gpt2.to(device)
 
     def __call__(self, *args, **kwargs):
         return self.generate_response(*args, **kwargs)
@@ -105,7 +109,7 @@ class DLDLMChatbot:
 
     def _compute_latent_proba(self, hidden_vector: torch.tensor) -> torch.tensor:
         # Compute logits using LM head
-        logits = self.nn_model.lm_head(hidden_vector)
+        logits = self.gpt2.lm_head(hidden_vector)
         # Mask logits to prevent sampling other positions a part from latent codes
         mask = torch.ones_like(logits, dtype=torch.bool)
         mask[self.latent_token_ids] = False
@@ -130,7 +134,7 @@ class DLDLMChatbot:
                 self._get_context_str(context) + self.prior_token, return_tensors='pt'
             ).to(self.device)
         # Compute hidden state
-        hidden_state = self.nn_model.transformer(**input_encoding, return_dict=True).last_hidden_state
+        hidden_state = self.gpt2.transformer(**input_encoding, return_dict=True).last_hidden_state
         # Compute prior distribution if required
         if prior:
             prior_dist = self._compute_latent_proba(
@@ -197,7 +201,7 @@ class DLDLMChatbot:
             return_tensors='pt'
         ).input_ids.to(self.device)
         # Gather generated ids and scores
-        output_dict = self.nn_model.generate(
+        output_dict = self.gpt2.generate(
             input_ids=input_ids, **self.generate_kwargs, return_dict_in_generate=True, output_scores=True
         )
         # Compute
@@ -231,7 +235,7 @@ class DLDLMChatbot:
         # Encode the context using the tokeniser
         input_ids = self.tokenizer(context_string + latent_code_string, return_tensors='pt').input_ids.to(self.device)
         # Gather generated ids
-        output_ids = self.nn_model.generate(input_ids=input_ids, **self.generate_kwargs)[0, input_ids.size(1):]
+        output_ids = self.gpt2.generate(input_ids=input_ids, **self.generate_kwargs)[0, input_ids.size(1):]
         # Decode the response using the tokenizer
         output_string: str = self.tokenizer.decode(output_ids, skip_special_tokens=True).strip()
 

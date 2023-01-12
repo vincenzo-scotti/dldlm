@@ -1,5 +1,5 @@
 experiment_series: DLDLM_finetuning
-experiment_id: dldlm_large_nllt_gibbs
+experiment_id: therabot
 experiments_directory_path: ./experiments/
 
 random_seed: &random_seed 2307
@@ -15,8 +15,8 @@ dldlm:
     pretrained: &pretrained /home/vincenzo/Documents/dldlm/experiments/DLDLM_pretraining/dldlm_large_nllt_lda_lr_2022_10_10_17_04_19/model/best_checkpoint
     kwargs:
       do_gibbs_sampling: true
-      behaviour_loss_weight: 0.01
-      sampling_loss_weight: 0.01
+      behaviour_loss_weight: 0.001
+      sampling_loss_weight: 0.001
     generate_kwargs:
       max_length: 512
       min_length: 1
@@ -59,11 +59,11 @@ data:
   corpora_dir_path: ./resources/data/raw/
   cache_dir_path: ./resources/data/cache/
   kwargs:
-    corpus_prefix: finetuning_corpus
+    corpus_prefix: therabot_corpus
     corpus_list:
       - HOPE_WSDM_2022
+      - Counseling_and_Psychotherapy_Transcripts_Volume_II
     latent_init: false
-    max_df: 0.9
     max_context_length: 256
     max_response_length: 256
   splits:

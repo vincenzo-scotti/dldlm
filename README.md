@@ -1,7 +1,6 @@
 # DLDLM
 
-Codebase for the paper "[Taming Pre-Trained Transformers into Discrete Variational AutoEncoders for Dialogue](https://www.overleaf.com/read/nnvywbkzvgjn)". 
-This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM) described in the paper.
+This repository contains the implementation of the Discrete Latent Dialogue Language Model (DLDLM).
 
 ## Repository structure
 
@@ -98,7 +97,7 @@ nohup python ./src/bin/evaluate_static.py --config_file_path ./resources/configs
 There is a script available to chat directly with any of the models, it can be run using the following command:
 
 ```bash
-python ./src/bin/evaluate_interactive.py --config_file_path ./resources/configs/path/to/inference/config.yaml > experiment_"$(date '+%Y_%m_%d_%H_%M_%S')".out &
+python ./src/bin/evaluate_interactive.py --config_file_path ./resources/configs/path/to/inference/config.yaml
 ```
 
 Alternatively there is the `chatbot_api` sub-module designed for the re-use of the agent outside the repository.
@@ -111,7 +110,7 @@ from dldlm.chatbot_api.chatbot import DLDLMChatbot
 
 
 # Define generate parameters (see HuggingFace Transformers documentation)
-generate_kwargs = {'top_p': 0.9, 'top_k': 0, 'temperature': 1.0, 'do_sample': True}
+generate_kwargs = {'top_p': 1.0, 'top_k': 0, 'temperature': 0.7, 'do_sample': True}
 # Create chatbot instance
 chatbot = DLDLMChatbot(
   './resources/models/dldlm',
@@ -123,12 +122,4 @@ chatbot = DLDLMChatbot(
 context = ['Hello, how are you?', 'Fine thanks, what about you?']
 # Generate response
 response = chatbot(context)
-```
-
-## References
-
-If you are willing to use our code or our models, please cite our work through the following BibTeX entry:
-
-```bibtex
-
 ```
