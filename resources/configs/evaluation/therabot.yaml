@@ -12,7 +12,7 @@ log_file: true
 dldlm:
   model:
     init: false
-    pretrained: &pretrained ./resources/models/therabot
+    pretrained: &pretrained ./resources/models/therapy_dldlm
   tokeniser:
     init: false
     pretrained: *pretrained

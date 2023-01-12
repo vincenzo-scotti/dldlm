@@ -108,14 +108,14 @@ Here follows a usage example
 ```python
 from dldlm.chatbot_api.chatbot import DLDLMChatbot
 
-
 # Define generate parameters (see HuggingFace Transformers documentation)
 generate_kwargs = {'top_p': 1.0, 'top_k': 0, 'temperature': 0.7, 'do_sample': True}
 # Create chatbot instance
 chatbot = DLDLMChatbot(
-  './resources/models/dldlm',
+  './resources/models/therapy_dldlm',
+  None,
   max_context_len=256,
-  max_response_len=128,
+  max_response_len=256,
   generate_kwargs=generate_kwargs
 )
 # Define context (list of previous turns)

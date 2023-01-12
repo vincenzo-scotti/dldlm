@@ -12,7 +12,7 @@ log_file: true
 dldlm:
   model:
     init: false
-    pretrained: &pretrained /home/vincenzo/Documents/dldlm/experiments/DLDLM_pretraining/dldlm_large_nllt_lda_lr_2022_10_10_17_04_19/model/best_checkpoint  # ./resources/models/dldlm
+    pretrained: &pretrained ./experiments/DLDLM_pretraining/dldlm_large_nllt_lda_lr_2022_10_10_17_04_19/model/best_checkpoint  # ./resources/models/dldlm
   tokeniser:
     init: false
     pretrained: *pretrained

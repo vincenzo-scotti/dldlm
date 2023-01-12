@@ -1,12 +1,12 @@
 experiment_series: DLDLM_interactive_evaluation
-experiment_id: dldlm_therapy
+experiment_id: dldlm_finetuning
 experiments_directory_path: ./experiments/
 
 random_seed: 2307
 mixed_precision: true
 
 chatbot:
-  pretrained: ./resources/models/dldlm_therapy
+  pretrained: ./resources/models/dldlm_finetuning
   max_context_len: 256
   max_response_len: 256
   generate_kwargs:

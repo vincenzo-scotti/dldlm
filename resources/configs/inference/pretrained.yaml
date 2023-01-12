@@ -6,7 +6,7 @@ random_seed: 2307
 mixed_precision: true
 
 chatbot:
-  pretrained: ./resources/models/dldlm
+  pretrained: ./resources/models/dldlm_pretrained
   max_context_len: 256
   max_response_len: 128
   generate_kwargs:
