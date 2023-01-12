@@ -21,7 +21,7 @@ data:
   corpora_dir_path: ./resources/data/raw/
   cache_dir_path: ./resources/data/cache/
   kwargs:
-    corpus_prefix: evaluation_corpus_therabot
+    corpus_prefix: evaluation_corpus
     corpus_list:
       - HOPE_WSDM_2022
       - Counseling_and_Psychotherapy_Transcripts_Volume_II

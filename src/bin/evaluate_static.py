@@ -50,6 +50,7 @@ device: torch.device
 mixed_precision: bool = True
 checkpoint_gradient: bool = False
 writer: SummaryWriter
+get_hidden_state: bool = False
 # Model
 model_configs: Dict
 model: DLDLMFullModel
@@ -66,7 +67,7 @@ data_dir_path: str
 
 def init_environment(config_file_path: str):
     # Declare global variables
-    global random_seed, device, mixed_precision, checkpoint_gradient, writer
+    global random_seed, device, mixed_precision, checkpoint_gradient, writer, get_hidden_state
     global model_configs, tokenizer_configs, corpus_configs
     global current_experiment_dir_path, data_dir_path
     # Get date-time
@@ -132,6 +133,7 @@ def init_environment(config_file_path: str):
     checkpoint_gradient = configs.get('checkpoint_gradient', checkpoint_gradient)
     logging.info(f"Gradient checkpointing {'enabled' if checkpoint_gradient else 'disabled'}")
     # Load remaining configs
+    get_hidden_state = configs.get('get_hidden_state', get_hidden_state)
     model_configs = configs['dldlm']['model']
     tokenizer_configs = configs['dldlm']['tokeniser']
     corpus_configs = configs['data']
@@ -286,8 +288,12 @@ def process_mini_batch(
             for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
                 sample['latent_prior_dist'] = torch.softmax(model_outputs.prior_logits[idx].squeeze(), dim=-1)
                 sample['latent_posterior_dist'] = torch.softmax(model_outputs.posterior_logits[idx].squeeze(), dim=-1)
-                sample['prior_hidden_state'] = model_outputs.prior_last_hidden_state[idx].squeeze().cpu()
-                sample['posterior_hidden_state'] = model_outputs.posterior_last_hidden_state[idx].squeeze().cpu()
+                sample['prior_hidden_state'] = model_outputs.prior_last_hidden_state[idx].squeeze().cpu() if get_hidden_state else None
+                sample['posterior_hidden_state'] = model_outputs.posterior_last_hidden_state[idx].squeeze().cpu() if get_hidden_state else None
+        for idx, sample in enumerate(raw_data[s_idx:e_idx], start=s_idx):
+            sample['ppl'] = model_outputs.loss_function_output.get(
+                PPL_NLL_LOSS_KEY, torch.empty(0, device=device)
+            )[idx].squeeze().exp().cpu()
 
     return loss, losses_dict, raw_data
 
