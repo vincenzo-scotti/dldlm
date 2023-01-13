@@ -53,7 +53,7 @@ class DLDLMChatbot:
         self.mixed_precision: bool = mixed_precision and self.device.type == 'cuda'
         self.in_mem: int = in_mem if in_mem is not None else len(self.latent_token_ids)
         # Move model to device
-        self.gpt2 = self.gpt2.to(device)
+        self.gpt2 = self.gpt2.to(self.device)
 
     def __call__(self, *args, **kwargs):
         return self.generate_response(*args, **kwargs)
