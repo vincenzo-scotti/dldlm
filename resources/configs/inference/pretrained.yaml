@@ -1,0 +1,20 @@
+experiment_series: DLDLM_interactive_evaluation
+experiment_id: dldlm_base
+experiments_directory_path: ./experiments/
+
+random_seed: 2307
+mixed_precision: true
+
+chatbot:
+  pretrained: ./resources/models/dldlm_pretrained
+  max_context_len: 256
+  max_response_len: 128
+  generate_kwargs:
+    do_sample: true
+    top_p: 1.0
+    top_k: 0
+    temperature: 0.7
+  generative_mode: causal
+
+log_level: DEBUG
+log_file: true

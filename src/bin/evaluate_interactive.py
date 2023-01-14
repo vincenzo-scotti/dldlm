@@ -5,15 +5,13 @@ import logging
 from datetime import datetime
 from argparse import ArgumentParser, Namespace
 import yaml
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Literal
 
 import random
 import numpy as np
 import torch
-from torch.cuda.amp import autocast
 
-from model.dldlm import DLDLMTokenizer, DLDLMLMHeadModel
-
+from dldlm.chatbot_api import DLDLMChatbot
 
 # Variables to control model and evaluation parameters
 # Environment
@@ -21,113 +19,90 @@ random_seed: Optional[int] = None
 device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 mixed_precision: bool = True
 # Model
-generation_kwargs: Dict = dict()
-max_context_len: int = 256
+generate_kwargs: Dict = dict()
+max_context_len: Optional[int]
+max_response_len: Optional[int]
+generative_mode: Literal['causal', 'joint'] = 'causal'
 pretrained_model: str
-model: DLDLMLMHeadModel
-pretrained_tokenizer: str
-tokenizer: DLDLMTokenizer
+chatbot: DLDLMChatbot
 # Experiment dir path
 current_experiment_dir_path: Optional[str] = None
 
-# TODO check out for beam sampling
 
-
-def init_environment(pretrained_model_id: Optional[str], config_file_path: Optional[str]):
+def init_environment(config_file_path: Optional[str]):
     # Declare global variables
-    global random_seed, device, mixed_precision, pretrained_tokenizer, \
-        pretrained_model, max_context_len, generation_kwargs, current_experiment_dir_path
-    assert pretrained_model_id is not None or config_file_path is not None, \
-        "You must specify at least one argument between 'pretrained_model' and 'config_file_path'"
+    global random_seed, device, mixed_precision, pretrained_model, \
+        max_context_len, max_response_len, generate_kwargs, generative_mode, \
+        current_experiment_dir_path
     # Get date-time
     date_time_experiment: str = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-    # If simply using model without config use defaults
-    if pretrained_model_id is not None:
-        # Init logging
-        logging.basicConfig(level=logging.ERROR)
-        # Start Logging info
-        logging.info(f"Interactive evaluation script started")
-        # Set device
-        logging.info(f"Device set to '{device}'")
-        # Set mixed precision
-        logging.info(f"Mixed precision set to '{mixed_precision}'")
-        # Load remaining configs
-        pretrained_model = pretrained_model_id
-        pretrained_tokenizer = pretrained_model_id
-    else:
-        # Read YAML file
-        with open(config_file_path) as f:
-            configs: Dict = yaml.full_load(f)
-        # Create directories
-        experiments_dir_path: str = configs['experiments_directory_path']
-        if not os.path.exists(experiments_dir_path):
-            os.mkdir(experiments_dir_path)
-        experiment_series_dir_path: str = os.path.join(experiments_dir_path, configs['experiment_series'])
-        if not os.path.exists(experiment_series_dir_path):
-            os.mkdir(experiment_series_dir_path)
-        current_experiment_dir_path = os.path.join(
-            experiment_series_dir_path, f"{configs['experiment_id']}_{date_time_experiment}"
+    # Read YAML file
+    with open(config_file_path) as f:
+        configs: Dict = yaml.full_load(f)
+    # Create directories
+    experiments_dir_path: str = configs['experiments_directory_path']
+    if not os.path.exists(experiments_dir_path):
+        os.mkdir(experiments_dir_path)
+    experiment_series_dir_path: str = os.path.join(experiments_dir_path, configs['experiment_series'])
+    if not os.path.exists(experiment_series_dir_path):
+        os.mkdir(experiment_series_dir_path)
+    current_experiment_dir_path = os.path.join(
+        experiment_series_dir_path, f"{configs['experiment_id']}_{date_time_experiment}"
+    )
+    if not os.path.exists(current_experiment_dir_path):
+        os.mkdir(current_experiment_dir_path)
+    # Create file paths
+    if configs.get('log_file', False):
+        log_file_path = os.path.join(
+            current_experiment_dir_path, f"{configs['experiment_id']}_{date_time_experiment}.log"
         )
-        if not os.path.exists(current_experiment_dir_path):
-            os.mkdir(current_experiment_dir_path)
-        # Create file paths
-        if configs.get('log_file', False):
-            log_file_path = os.path.join(
-                current_experiment_dir_path, f"{configs['experiment_id']}_{date_time_experiment}.log"
-            )
-        else:
-            log_file_path = None
-        configs_dump_path = os.path.join(current_experiment_dir_path, 'configs.yaml')
-        # Init logging
-        logging.basicConfig(filename=log_file_path, level=configs['log_level'])
-        # Start Logging info
-        logging.info(f"{configs['experiment_series']} evaluation script started")
-        logging.info(f"Current experiment directories created at '{current_experiment_dir_path}'")
-        if log_file_path is not None:
-            logging.info(f"Current experiment log created at '{log_file_path}'")
-        # Set all random seeds
-        random_seed = configs.get('random_seed', None)
-        random.seed(random_seed)
-        np.random.seed(random_seed)
-        torch.manual_seed(random_seed)
-        logging.info("Random seeds set")
-        # Dump configs
-        copy2(config_file_path, configs_dump_path)
-        logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
-        # Set device
-        device = torch.device(configs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
-        logging.info(f"Device set to '{device}'")
-        # Set mixed precision
-        mixed_precision = configs.get('mixed_precision', mixed_precision)
-        logging.info(f"Mixed precision set to '{mixed_precision}'")
-        # Load remaining configs
-        pretrained_model = configs['dldlm']['model']['pretrained']
-        max_context_len = configs['dldlm']['model']['max_context_len']
-        generation_kwargs = configs['dldlm']['model']['generation_kwargs']
-        pretrained_tokenizer = configs['dldlm']['tokeniser']['pretrained']
+    else:
+        log_file_path = None
+    configs_dump_path = os.path.join(current_experiment_dir_path, 'configs.yaml')
+    # Init logging
+    logging.basicConfig(filename=log_file_path, level=configs['log_level'])
+    # Start Logging info
+    logging.info(f"{configs['experiment_series']} evaluation script started")
+    logging.info(f"Current experiment directories created at '{current_experiment_dir_path}'")
+    if log_file_path is not None:
+        logging.info(f"Current experiment log created at '{log_file_path}'")
+    # Set all random seeds
+    random_seed = configs.get('random_seed', None)
+    random.seed(random_seed)
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    logging.info("Random seeds set")
+    # Dump configs
+    copy2(config_file_path, configs_dump_path)
+    logging.info(f"Current experiment configuration dumped at '{configs_dump_path}'")
+    # Set device
+    device = torch.device(configs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'))
+    logging.info(f"Device set to '{device}'")
+    # Set mixed precision
+    mixed_precision = configs.get('mixed_precision', mixed_precision)
+    logging.info(f"Mixed precision set to '{mixed_precision}'")
+    # Load remaining configs
+    pretrained_model = configs['chatbot']['pretrained']
+    max_context_len = configs['chatbot'].get('max_context_len')
+    max_response_len = configs['chatbot'].get('max_response_len')
+    generate_kwargs = configs['chatbot']['generate_kwargs']
+    generative_mode = configs['chatbot'].get('generative_mode', generative_mode)
     logging.info("Initialisation completed")
 
 
 def load_model():
     # Declare global variables
-    global pretrained_tokenizer, pretrained_model, tokenizer, model
-    # Create tokeniser instance
-    tokenizer = DLDLMTokenizer.from_pretrained(pretrained_tokenizer)
-    logging.info("Tokeniser instantiated")
-    # Create model instance
-    model = DLDLMLMHeadModel.from_pretrained(pretrained_model)
-    logging.info("DLDLM model instantiated")
-    # Move model to device
-    model = model.to(device)
-    logging.info(f"Model moved to device: {device}")
-    # Set model in evaluation mode
-    model = model.eval()
-    logging.info("Model set in evaluation mode")
-
-
-def response_sorting_key(args):
-    _, ppl = args
-    return ppl
+    global pretrained_model, chatbot
+    # Create chatbot instance
+    chatbot = DLDLMChatbot(
+        pretrained_model,
+        mixed_precision=mixed_precision,
+        max_context_len=max_context_len,
+        max_response_len=max_response_len,
+        generate_kwargs=generate_kwargs,
+        device=device
+    )
+    logging.info("DLDLM chatbot initialised")
 
 
 def append_turn_to_conversation_file(text: str):
@@ -137,26 +112,12 @@ def append_turn_to_conversation_file(text: str):
             f.write(text + '\n')
 
 
-def get_context_len(context):
-    # Declare global variables
-    global tokenizer, max_context_len
-    turn_lengths = [len(tokenizer(turn).input_ids) - 2 for turn in context]
-    context_len = sum(turn_lengths)
-    context_turns = len(context)
-    while context_len > max_context_len:
-        context_len -= turn_lengths.pop(0)
-        context_turns -= 1
-    return context_turns
-
-
-@torch.no_grad()
-@autocast(enabled=mixed_precision)
 def main(args: Namespace):
     # Declare global variables
-    global device, tokenizer, model, generation_kwargs
+    global device, tokenizer, model, generate_kwargs
     # Perform preparation steps
     # Prepare the environment
-    init_environment(args.pretrained_model, args.config_file_path)
+    init_environment(args.config_file_path)
     # Create model and tokeniser
     load_model()
     # Begin conversation
@@ -168,41 +129,26 @@ def main(args: Namespace):
     evaluating: bool = True
     # Log evaluation start
     print("Evaluation started, press [Ctrl+C] to end the process\n\n\n\n\n\n")
-    # Keep evaluation running until user stops it
+    # Keep conversation running until user stops it
     while evaluating:
         # Wrap everything into a try-except block to stop on SIGTERM
         try:
             # Get input from user
-            input_string = input(">>> ")
+            input_string = input("User: ")
             # Append latest turn to conversation history
             # Add the special end of sequence token to signal to the transformer that the turn is finished
-            conversation.append(tokenizer.bos_token + input_string + tokenizer.eos_token)
+            conversation.append(input_string)
             # Append latest turn to conversation history file
-            append_turn_to_conversation_file(input_string)
-            # Gather last n turns to be used as prompt to the model and merge them into a single string
-            context_string = str().join(conversation[-get_context_len(conversation):])
-            # Encode the context using the tokeniser
-            context_ids, context_attention_mask = tokenizer(context_string, return_tensors='pt').values()
-            context_ids = context_ids.to(device)
-            context_attention_mask = context_attention_mask.to(device)
-            # Encode response prompt using the tokeniser
-            input_ids = tokenizer(tokenizer.bos_token, return_tensors='pt').input_ids.to(device)
-            # Gather generated ids
-            output_ids = model.generate(
-                input_ids=input_ids,
-                context_ids=context_ids,
-                context_attention_mask=context_attention_mask,
-                **generation_kwargs
-            )[0]
-            # Decode the response using the tokenizer
-            output_string: str = tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+            append_turn_to_conversation_file(f"User: {input_string}")
+            # Generate response
+            reponse, latent_code_id = chatbot(conversation, generative_mode=generative_mode, output_latent=True)
             # Print response
-            print(">>> " + output_string)
+            print(f"DLDLM ({latent_code_id}): {reponse}")
             # Append latest response to conversation history
             # Add the special end of sequence token to signal to the transformer that the turn is finished
-            conversation.append(tokenizer.bos_token + output_string + tokenizer.eos_token)
+            conversation.append(reponse)
             # Write response to file
-            append_turn_to_conversation_file("\t\t\t\t" + output_string)
+            append_turn_to_conversation_file(f"DLDLM ({latent_code_id}): {reponse}")
         # In case of KeyboardInterrupt (e.g. when Ctrl+C is pressed or SIGTERM is given) stop running
         except KeyboardInterrupt:
             # Set running flag to false
@@ -217,18 +163,11 @@ def main(args: Namespace):
 if __name__ == "__main__":
     # Instantiate argument parser
     args_parser: ArgumentParser = ArgumentParser()
-    # Add arguments to parser
-    args_parser.add_argument(
-        '--pretrained_model',
-        type=str, default=None,
-        help="Path to a directory containing a DLDLM checkpoint or "
-             "remote reference to a HuggingFace model hub checkpoint."
-    )
+    # Add argument to parser
     args_parser.add_argument(
         '--config_file_path',
         type=str, default=None,
         help="Path to the YAML file containing the configuration for the evaluation."
-             "Ignored when the model is given."
     )
     # Run experiment
     main(args_parser.parse_args(sys.argv[1:]))

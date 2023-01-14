@@ -1,0 +1,80 @@
+experiment_series: DLDLM_finetuning
+experiment_id: dldlm_large_nllt_gibbs_no_lm
+experiments_directory_path: ./experiments/
+
+random_seed: &random_seed 2307
+mixed_precision: true
+checkpoint_gradient: true
+
+log_level: DEBUG
+log_file: true
+
+dldlm:
+  model:
+    init: false
+    pretrained: &pretrained ./experiments/DLDLM_pretraining/dldlm_large_nllt_lda_lr_2022_10_10_17_04_19/model/best_checkpoint
+    kwargs:
+      do_gibbs_sampling: true
+      lm_loss_weight: 0.0
+    generate_kwargs:
+      max_length: 512
+      min_length: 1
+      do_sample: true
+      top_p: 1.0
+      top_k: 0
+      temperature: 0.7
+  tokeniser:
+    init: false
+    pretrained: *pretrained
+
+optimizer:
+  kwargs:
+    lr: &lr 1.e-9
+  n_epochs: 5
+  max_gradient_norm: 1.0
+
+lr_scheduler:
+  lr: *lr
+  lr_start: 0.0
+  lr_stop: 0.0
+  warmup: 0.05
+
+alpha_scheduler: {}
+
+beta_scheduler: {}
+
+evaluation:
+  monitored_metric: loss
+  metrics:
+    word_count:
+      top_n: 20
+    traces:
+      window_size: 4
+    sample_responses:
+      n_samples: 10
+    word_stats: {}
+
+data:
+  corpora_dir_path: ./resources/data/raw/
+  cache_dir_path: ./resources/data/cache/
+  kwargs:
+    corpus_prefix: finetuning_corpus
+    corpus_list:
+      - HOPE_WSDM_2022
+    latent_init: false
+    max_df: 0.9
+    max_context_length: 256
+    max_response_length: 256
+  splits:
+    train:
+      mini_batch_size: 128
+      in_mem: 2
+      n_workers: &n_workers 4
+    validation:
+      mini_batch_size: &eval_mini_batch_size 16
+      in_mem: *eval_mini_batch_size
+      n_workers: *n_workers
+    test:
+      mini_batch_size: *eval_mini_batch_size
+      in_mem: *eval_mini_batch_size
+      n_workers: *n_workers

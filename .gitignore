@@ -139,7 +139,3 @@ resources/models/*
 # Experimet directories
 experiments/*
 !experiments/README.md
-
-# Service run directories
-services/*
-!services/README.md

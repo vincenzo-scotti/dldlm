@@ -1,0 +1,46 @@
+experiment_series: DLDLM_evaluation
+experiment_id: dldlm_large_ #
+experiments_directory_path: ./experiments/
+
+random_seed: &random_seed 2307
+mixed_precision: true
+checkpoint_gradient: true
+
+log_level: DEBUG
+log_file: true
+
+dldlm:
+  model:
+    init: false
+    pretrained: &pretrained ./resources/models/dldlm #
+  tokeniser:
+    init: false
+    pretrained: *pretrained
+
+data:
+  corpora_dir_path: ./resources/data/raw/
+  cache_dir_path: ./resources/data/cache/
+  kwargs:
+    corpus_prefix: evaluation_corpus
+    corpus_list:
+      - HOPE_WSDM_2022
+      - dailydialog
+      - empatheticdialogues
+      - personachat
+      - wizard_of_wikipedia
+    latent_init: false
+    max_context_length: 256
+    max_response_length: 128
+  splits:
+    train:
+      mini_batch_size: &eval_mini_batch_size 16
+      in_mem: *eval_mini_batch_size
+      n_workers: &n_workers 4
+    validation:
+      mini_batch_size: *eval_mini_batch_size
+      in_mem: *eval_mini_batch_size
+      n_workers: *n_workers
+    test:
+      mini_batch_size: *eval_mini_batch_size
+      in_mem: *eval_mini_batch_size
+      n_workers: *n_workers
