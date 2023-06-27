@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 import numpy as np
 import pandas as pd
 from statsmodels.stats.inter_rater import fleiss_kappa, aggregate_raters
+from statsmodels.stats.descriptivestats import sign_test
 
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -112,6 +113,40 @@ def main(args):
 
     print("\n\n\n\n")
 
+    # Sign test
+    rater_list = results['evaluator_id'].unique()
+    for emo_id, emo in zip(emo_map, emo_list):
+        print('\\midrule')
+        print(f'\\multicolumn{{4}}{{c}}{{\\textbf{{{emo_id.capitalize()}}}}} \\\\')
+        print('\\midrule')
+        for score in score_list:
+            score_flag = True
+            for i, model_1 in enumerate(model_list):
+                model_flag = True
+                for j in range(i + 1, len(model_list)):
+                    model_2 = model_list[j]
+                    scores_model_1 = np.array([results[
+                                                   (results['emotion'].isin(emo)) & (results['score_id'] == score) & (
+                                                               results['model_id'] == model_1) & (
+                                                               results['evaluator_id'] == rater)].sort_values(
+                        'sample_idx')['score_value'].values for rater in rater_list]).T
+                    scores_model_2 = np.array([results[
+                                                   (results['emotion'].isin(emo)) & (results['score_id'] == score) & (
+                                                               results['model_id'] == model_2) & (
+                                                               results['evaluator_id'] == rater)].sort_values(
+                        'sample_idx')['score_value'].values for rater in rater_list]).T
+                    print(
+                        f'\\multirow{{3}}{{*}}{{\\textbf{{{score.capitalize()}}}}}' if score_flag else ' ',
+                        f'\\multirow{{{len(model_list) - 1 - i}}}{{*}}{{\\textbf{{{model_1}}}}}' if model_flag else ' ',
+                        f'\\textbf{{{model_2}}}',
+                        f'{sign_test(scores_model_1.mean(axis=1) - scores_model_2.mean(axis=1))[1]:.3f}',
+                        sep=" & ",
+                        end=" \\\\\n"
+                    )
+                    score_flag = model_flag = False
+
+    print("\n\n\n\n")
+
     # results[results['score_value'] == 3] = results[results['score_value'] == 3].apply(lambda x: 5)
     results['score_value'] = results['score_value'].apply(lambda x: 5 if x == 3 else x)
 
@@ -123,6 +158,32 @@ def main(args):
     ]) + " \\\\" for emo_id, emo in zip(emo_map, emo_list)]
     for r in res:
         print(r)
+
+    print("\n\n\n\n")
+
+    # Sign test
+    rater_list = results['evaluator_id'].unique()
+    for emo_id, emo in zip(emo_map, emo_list):
+        print('\\midrule')
+        print(f'\\multicolumn{{4}}{{c}}{{\\textbf{{{emo_id.capitalize()}}}}} \\\\')
+        print('\\midrule')
+        for score in score_list:
+            score_flag = True
+            for i, model_1 in enumerate(model_list):
+                model_flag = True
+                for j in range(i + 1, len(model_list)):
+                    model_2 = model_list[j]
+                    scores_model_1 = np.array([results[(results['emotion'].isin(emo)) & (results['score_id'] == score) & (results['model_id'] == model_1) & (results['evaluator_id'] == rater)].sort_values('sample_idx')['score_value'].values for rater in rater_list]).T
+                    scores_model_2 = np.array([results[(results['emotion'].isin(emo)) & (results['score_id'] == score) & (results['model_id'] == model_2) & (results['evaluator_id'] == rater)].sort_values('sample_idx')['score_value'].values for rater in rater_list]).T
+                    print(
+                        f'\\multirow{{3}}{{*}}{{\\textbf{{{score.capitalize()}}}}}' if score_flag else ' ',
+                        f'\\multirow{{{j - i}}}{{*}}{{\\textbf{{{model_1}}}}}' if model_flag else ' ',
+                        f'\\textbf{{{model_2}}}',
+                        f'{sign_test(scores_model_1.mean(axis=1) - scores_model_2.mean(axis=1))[1]:.3f}',
+                        sep=" & ",
+                        end=" \\\\\n"
+                    )
+                    score_flag = model_flag = False
 
     # Cont
     results.to_csv(os.path.join(args.dest_dir_path, 'human_evaluation_results.csv'), index=False)
